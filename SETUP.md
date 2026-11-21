@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.3.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.4.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -193,6 +193,12 @@ The preview shows what the app sees with each light's zones drawn on top. Check 
 colours on the light match the zones. Changes to mounting, direction and all the sliders
 apply while it runs.
 
+**Follow the video** (on by default): when a film or game plays in a window, the screen edges
+are usually a white web page or the desktop, and lights that look at the edges would just
+turn white. The app notices where the picture moves and lays the zones over the video
+instead; you can see the zones move onto it in the preview. When nothing moves for about ten
+seconds, or the video goes fullscreen, it uses the whole screen again.
+
 ### Getting the colours to match
 
 The defaults are a good start. If the lights still don't look like the screen, in this order:
@@ -203,12 +209,16 @@ The defaults are a good start. If the lights still don't look like the screen, i
 2. **LED gamma** (Screen sync → Colours): LEDs at half power look much brighter than a screen
    at half brightness. Gamma makes up for that. Colours look washed out or pastel → raise it
    (2.2–2.6). Dark scenes are too dark on the lights → lower it (1.6–1.8).
-3. **Colour pick**: *Accurate* is the true average of each zone. *Vivid* leans towards the
-   strong colours in a zone, good for games and cartoons. *Dominant* takes the colour that
-   covers the most of the zone, good for films with small bright highlights.
+3. **Colour pick**: *Colourful* (the default) lets the colours in a zone win over white, grey
+   and black areas, so a zone that is half white page and half red video gives red. *Dominant
+   colour* takes the colour that covers the most of the zone. *Exact average* is the plain
+   average of everything in the zone; it matches the screen literally, which on a normal
+   desktop mostly means white and grey.
 4. **Saturation** 100–130 % and **Black level** (colours darker than this are sent as black,
    so dark scenes don't turn the lights a dim brown).
 5. **Ignore black bars** stops letterboxed films from making the top and bottom zones black.
+6. **Edge depth** (Capture): how far into the screen the edge zones reach. 25 % by default;
+   higher picks up more of the picture, lower follows the very edge.
 
 ### Response
 
@@ -391,6 +401,15 @@ green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it
 Go through [Getting the colours to match](#getting-the-colours-to-match). With more than one
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
+
+**Screen sync: the lights only show white (in different brightnesses)**
+
+That's what the screen edges look like on a normal desktop: white pages, grey windows. Update
+to 1.4.0 or newer, which takes the colours from the video instead (*Follow the video*) and
+uses the *Colourful* colour pick. Check that both are on in Screen sync. For a quick test,
+play a colourful video fullscreen. If the preview shows colour but the lights stay white,
+press *Identify* on the light's page; if that shows red and blue, the light is fine and the
+colour pick or *Saturation* needs raising, otherwise see *Segment streaming* above.
 
 **Lights flash or flicker at random**
 

@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.4.0" date="2026-11-21">
+      <description>
+        <p>Screen sync shows colours again instead of white: the lights follow a video playing
+        in a window, and the new Colourful colour pick ignores white and grey areas.</p>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-11-21">
       <description>
         <p>Faster screen capture without flashing, light bar support (H6056 and others),

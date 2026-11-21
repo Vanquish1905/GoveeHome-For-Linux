@@ -20,6 +20,8 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   their zone
 - Mounting presets for TV and monitor backlights, single edges, columns and light bar pairs
   like the H6056 Flow Plus (one bar on each side of the screen)
+- *Follow the video*: when a film or game runs in a window, the lights take their colours
+  from it instead of the white page or desktop around it
 - An *Identify* test that shows on the light which side of the screen each segment follows
 - Colours that match: every screen pixel counts, mixing happens in linear light and the
   result is gamma corrected for LEDs; per-light white balance on top
@@ -131,13 +133,14 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
    through X shared memory, both in a GStreamer pipeline. A leaky queue makes sure only the
    newest frame is ever processed, so delay can't build up. Lanczos scaling shrinks the
    frame to 640×360 using every screen pixel, then it's averaged down to 160×90.
-2. **Clean up.** A single black frame (which capture sometimes produces) is ignored, so the
-   lights don't flash off. Letterbox bars are cut off, but only real ones: black, symmetric,
-   with a sharp edge, and stable for a second.
+2. **Find the picture.** A single black frame (which capture sometimes produces) is ignored,
+   so the lights don't flash off. The app tracks where the picture moves; when a video plays
+   in a window, the zones are laid over the video instead of the whole screen, so the white
+   page around it doesn't turn the lights white. Letterbox bars of films are cut off.
 3. **Zones.** Each light gets one zone per segment, depending on how it's mounted.
-4. **Colour.** Each zone is averaged in linear light (half black and half white is a light
-   grey, not a dark one; red next to green mixes to yellow, not brown). Saturation and a
-   black level are applied.
+4. **Colour.** Within each zone, coloured pixels count far more than white, grey and black
+   ones, and mixing happens in linear light (red next to green gives yellow, not brown). A
+   zone that really is white stays white. Saturation and a black level are applied.
 5. **Smoothing.** Time based, 40 ms by default, and big jumps like scene cuts go through at
    once.
 6. **Output.** Colours are gamma corrected for LEDs and white balanced per light. Segment
