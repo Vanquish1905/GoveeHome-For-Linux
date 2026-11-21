@@ -1,0 +1,21 @@
+# Runs screen sync in the background whenever you are logged in.
+#
+#   cp packaging/systemd/goveehome-sync.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now goveehome-sync.service
+#
+# Start sync once from the app first, so the screen share choice is
+# remembered and the service can start without a dialog.
+
+[Unit]
+Description=GoveeHome screen sync
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/goveehome-cli sync
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
