@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.6.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.7.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -215,7 +215,9 @@ The defaults are a good start. If the lights still don't look like the screen, i
    grey mix. *Dominant colour* takes the colour that covers the most of the zone. *Exact
    average* is the plain average of everything in the zone; it matches the screen literally,
    which mostly means grey and white.
-4. **Saturation** 100–130 % and **Black level** (colours darker than this are sent as black,
+4. **Vividness** (default 4) turns screen colours into clean light colours, like Saturation
+   in Govee's own app. Keep it high for lights with white LEDs (RGBWW, e.g. the H6056); set
+   it to 1 for colours exactly as on screen. **Saturation** 100–130 % and **Black level** (colours darker than this are sent as black,
    so dark scenes don't turn the lights a dim brown).
 5. **Ignore black bars** stops letterboxed films from making the top and bottom zones black.
 6. **Edge depth** (Capture): how far into the screen the edge zones reach. 25 % by default;
@@ -415,6 +417,15 @@ green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it
 Go through [Getting the colours to match](#getting-the-colours-to-match). With more than one
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
+
+**Screen sync: the lights are white or grey (H6056 and other RGBWW lights)**
+
+Lights with extra white LEDs (RGBWW / RGBICWW, among them the H6056 Flow Plus bars) turn
+the part of a colour that all three channels share into white light. Screen colours almost
+always have such a part, so before 1.7.0 these lights looked white or grey during screen
+sync, while effects and music (pure colours) looked fine. Update to 1.7.0 or newer and keep
+**Vividness** (Screen sync → Colours) at 4 or higher; raise it if colours still look pale.
+That's the same thing the *Saturation* slider in Govee's own PC app does.
 
 **Screen sync on KDE Plasma: lights are white or grey**
 

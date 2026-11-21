@@ -26,6 +26,9 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   and a live colour strip per light showing exactly what it is being sent
 - Colours that match: every screen pixel counts, mixing happens in linear light and the
   result is gamma corrected for LEDs; per-light white balance on top
+- *Vividness*, like Saturation in Govee's own PC app: screen colours are turned into clean
+  light colours. That matters a lot for lights with white LEDs (RGBWW / RGBICWW, like the
+  H6056), which otherwise show every mixed colour as white
 - Fast: in testing on X11, about 35 ms from a change on the screen to the command leaving
   the PC; glitch frames are filtered out and films with black bars are handled
 - Works on Wayland (GNOME, KDE Plasma) through the screen share portal, on X11, and on
@@ -156,9 +159,13 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
    into grey, because different colours cancel out, and white pages wash it out further. A
    zone that really is white or grey stays that way. Lights that can only show one colour
    get the strongest colour of all their zones the same way.
-5. **Smoothing.** Time based, 40 ms by default, and big jumps like scene cuts go through at
+5. **Vividness.** Picture colours are rarely pure: skin, sky and grass have all three
+   channels on. Lights with white LEDs show that shared part as white, so they look pale or
+   white. Like Govee's own sync, the saturation is pushed towards pure colours while grey
+   and white stay neutral and brightness is kept.
+6. **Smoothing.** Time based, 40 ms by default, and big jumps like scene cuts go through at
    once.
-6. **Output.** Colours are gamma corrected for LEDs and white balanced per light. Segment
+7. **Output.** Colours are gamma corrected for LEDs and white balanced per light. Segment
    capable lights get a DreamView/Razer frame over UDP with one colour per segment; the
    streaming mode is switched on once, not over and over. Other lights get a plain colour
    command, capped at 15 per second.

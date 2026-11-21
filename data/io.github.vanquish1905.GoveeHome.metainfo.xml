@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.7.0" date="2026-11-21">
+      <description>
+        <p>Screen sync sends clean, vivid colours (Vividness, like Govee's own app), so lights
+        with white LEDs such as the H6056 no longer turn white.</p>
+      </description>
+    </release>
     <release version="1.6.0" date="2026-11-21">
       <description>
         <p>Screen sync on KDE Plasma: plain RGB capture, KWin buffer limit, colour boost for
