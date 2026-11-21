@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goveehome"
+dynamic = ["version"]
+description = "Control Govee lights on Linux and sync them with your screen"
+readme = "README.md"
+authors = [{ name = "Colin", email = "vanquish.16.3.1905@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.22"]
+classifiers = [
+    "Environment :: X11 Applications :: GTK",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Home Automation",
+]
+
+[project.optional-dependencies]
+# PyGObject, GTK 4, libadwaita and GStreamer come from the distribution.
+x11 = ["mss>=9"]
+bluetooth = ["bleak>=0.21"]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/Vanquish1905/GoveeHome-For-Linux"
+Issues = "https://github.com/Vanquish1905/GoveeHome-For-Linux/issues"
+
+[project.scripts]
+goveehome-cli = "goveehome.cli:main"
+
+[project.gui-scripts]
+goveehome = "goveehome.ui.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "goveehome.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["goveehome*"]
+
+[tool.setuptools.package-data]
+"goveehome.ui" = ["*.css"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
