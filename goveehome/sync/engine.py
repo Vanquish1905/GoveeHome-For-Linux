@@ -62,6 +62,7 @@ class Preview:
     fps: float
     backend: str
     delay: float | None = None     # seconds from screen to light, screen sync only
+    details: str = ""              # diagnostics for the status area
 
 
 class Source:
@@ -102,6 +103,7 @@ class ScreenSource(Source):
         self.box = (0, 0, 0, 0)
         self.frame: np.ndarray | None = None
         self._black_run = 0
+        self.details = ""
         self.grabbed_at: float | None = None
         self.capture_age: float | None = None
 
@@ -137,6 +139,7 @@ class ScreenSource(Source):
         else:
             self._black_run = 0
         self.frame = frame
+        self._describe(frame)
         sync = self.config.sync
         bars = self.detector(frame) if sync.get("letterbox", True) else (0, 0, 0, 0)
         video = self.tracker(frame) if sync.get("follow_video", True) else (0, 0, 0, 0)
@@ -150,6 +153,19 @@ class ScreenSource(Source):
         black = float(sync.get("black_level", 8))
         return {t.device.id: sc.adjust(analyzer.zones(t.rects, mode), saturation, brightness, black)
                 for t in targets}
+
+    def _describe(self, frame: np.ndarray) -> None:
+        """A line for the status area: what we capture and how colourful it is."""
+        px = frame.reshape(-1, 3).astype(np.float32)
+        mx = px.max(axis=1)
+        sat = (mx - px.min(axis=1)) / np.maximum(mx, 1.0)
+        colour = float(((sat > 0.25) & (mx > 30)).mean())
+        fmt = getattr(self.backend, "source_format", "") or ""
+        parts = [f"Picture: {fmt}" if fmt else "Picture"]
+        parts.append(f"{colour * 100:.0f} % of it is colourful")
+        if self.box != (0, 0, 0, 0):
+            parts.append("following the video")
+        self.details = ", ".join(parts)
 
     def preview(self):
         return self.frame
@@ -218,7 +234,8 @@ class LightEngine:
             elif not settings.get(kind, True):
                 continue
             rects = layout_rects(settings["layout"], settings["segments"], depth, settings["reverse"])
-            n = len(rects)
+            # effects and music draw along the light: one position per colour it can show
+            n = len(rects) if settings["streaming"] else 1
             positions = np.linspace(0.0, 1.0, n) if n > 1 else np.array([0.5])
             if settings["reverse"]:
                 positions = positions[::-1].copy()
@@ -284,6 +301,7 @@ class LightEngine:
                         fps=self.fps,
                         backend=self.backend_name,
                         delay=self.delay,
+                        details=getattr(source, "details", ""),
                     ))
                 fps = max(1, min(60, source.fps()))
                 delay = 1.0 / fps - (time.monotonic() - started)
@@ -309,6 +327,8 @@ class LightEngine:
             colors = outputs.get(t.device.id)
             if colors is None:
                 continue
+            if not t.settings["streaming"] and len(colors) > 1:
+                colors = sc.combine(colors)
             t.smoother.smoothing = tau
             smoothed = t.smoother(colors, now)
             t.display = sc.to_rgb_list(smoothed)

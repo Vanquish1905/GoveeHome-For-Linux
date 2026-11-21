@@ -47,6 +47,43 @@ class ColorDot(Gtk.DrawingArea):
         cr.stroke()
 
 
+class ColorStrip(Gtk.DrawingArea):
+    """The colours a light is getting right now, one block per segment."""
+
+    def __init__(self, width: int = 84, height: int = 12):
+        super().__init__()
+        self.set_content_width(width)
+        self.set_content_height(height)
+        self.set_valign(Gtk.Align.CENTER)
+        self._colors: list = []
+        self.set_draw_func(self._draw)
+
+    def set_colors(self, colors) -> None:
+        colors = list(colors or [])
+        if colors != self._colors:
+            self._colors = colors
+            self.queue_draw()
+
+    def _draw(self, _area, cr, width, height):
+        fg = self.get_color()
+        if not self._colors:
+            cr.rectangle(0.5, 0.5, width - 1, height - 1)
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.3)
+            cr.set_line_width(1)
+            cr.stroke()
+            return
+        n = len(self._colors)
+        seg = width / n
+        for i, c in enumerate(self._colors):
+            cr.rectangle(i * seg, 0, seg + 0.5, height)
+            cr.set_source_rgb(*(v / 255 for v in c))
+            cr.fill()
+        cr.rectangle(0.5, 0.5, width - 1, height - 1)
+        cr.set_source_rgba(0, 0, 0, 0.25)
+        cr.set_line_width(1)
+        cr.stroke()
+
+
 class Swatch(Gtk.Button):
     def __init__(self, name: str, rgb: RGB, on_pick):
         super().__init__()

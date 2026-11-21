@@ -59,6 +59,7 @@ class GstCapture(CaptureBackend):
         self._sink = None
         self._last: np.ndarray | None = None
         self.last_age: float | None = None     # seconds between screen and our frame
+        self.source_format: str = ""           # e.g. "1920×1080 BGRx", for diagnostics
 
     def source_description(self) -> str:
         raise NotImplementedError
@@ -112,6 +113,8 @@ class GstCapture(CaptureBackend):
         if frame is None:          # damaged / empty buffer: keep the previous picture
             return self._last if self._last is not None else np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), np.uint8)
         self._measure_age(sample)
+        if not self.source_format:
+            self._read_format()
         self._last = downscale(frame)
         return self._last
 
@@ -127,6 +130,18 @@ class GstCapture(CaptureBackend):
         stride = size // height
         rows = np.frombuffer(data, dtype=np.uint8)[: stride * height].reshape(height, stride)
         return rows[:, : width * 3].reshape(height, width, 3)
+
+    def _read_format(self) -> None:
+        try:
+            src = self._pipeline.get_by_name("src")
+            caps = src.get_static_pad("src").get_current_caps()
+            st = caps.get_structure(0)
+            fmt = st.get_value("format") if st.has_field("format") else st.get_name()
+            self.source_format = f"{st.get_value('width')}×{st.get_value('height')} {fmt}"
+            if caps.get_features(0) is not None and caps.get_features(0).to_string() != "memory:SystemMemory":
+                self.source_format += f" ({caps.get_features(0).to_string()})"
+        except Exception:
+            self.source_format = "unknown format"
 
     def _measure_age(self, sample) -> None:
         try:

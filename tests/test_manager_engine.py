@@ -69,7 +69,9 @@ def test_stream_uses_razer_for_capable_models(tmp_path):
     m.stream(bulb, [(255, 0, 0), (0, 0, 255)])
     names = [c[0] for c in m.lan.calls]
     assert names.count("stream_enable") == 1
-    assert ("color", "10.0.0.2", (127, 0, 127)) in m.lan.calls
+    # one colour from both: the strongest colour, not a washed out mix
+    sent = [c[2] for c in m.lan.calls if c[0] == "color" and c[1] == "10.0.0.2"]
+    assert sent[-1] in ((255, 0, 0), (0, 0, 255))
     m.stream_stop(tv)
     assert ("stream_enable", "10.0.0.1", False) in m.lan.calls
 

@@ -12,6 +12,8 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
+
 from goveehome import skus
 from goveehome.colors import RGB
 from goveehome.config import Config
@@ -399,8 +401,8 @@ class DeviceManager:
             settings["layout"] = info.layout
         if not device.ip:
             settings["streaming"] = False
-        if not settings["streaming"]:
-            settings["segments"] = 1
+        # "segments" stays the number of screen zones even without streaming:
+        # screen sync looks at all of them and turns them into one good colour
         return settings
 
     @staticmethod
@@ -430,7 +432,11 @@ class DeviceManager:
             entry["last_frame"] = now
             self.lan.stream_colors(device.ip, colors, settings.get("gradient", True))
             return
-        avg = tuple(int(sum(c[i] for c in colors) / len(colors)) for i in range(3))
+        if len(colors) > 1:
+            from goveehome.sync.colors import combine
+            avg = tuple(int(round(v)) for v in combine(np.asarray(colors, dtype=np.float32))[0])
+        else:
+            avg = tuple(int(v) for v in colors[0])
         if avg == (0, 0, 0):
             # some lights ignore an all-zero colour and keep the old one
             avg = (1, 1, 1)

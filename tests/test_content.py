@@ -94,3 +94,61 @@ def test_light_bars_show_the_video_not_white():
     left, right = out[:6], out[6:]
     assert (left[:, 0] > 180).all() and (left[:, 2] < 80).all()      # red bar
     assert (right[:, 2] > 180).all() and (right[:, 0] < 80).all()    # blue bar
+
+
+class Game:
+    """A fullscreen scene where only part of the picture moves."""
+    label = "test"
+
+    def __init__(self):
+        self.i = 0
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    def grab(self):
+        self.i += 1
+        f = np.full((H, W, 3), 40, np.uint8)
+        f[:, :60] = (30, 120 + int(30 * np.sin(self.i / 5)), 40)   # moving green forest, left
+        f[:, 100:] = (200, 70, 20)                                    # still orange fire, right
+        f[10:30, 60:100] = (235, 235, 235)                            # white sky
+        return f
+
+
+def test_fullscreen_picture_with_partial_movement_is_not_cropped():
+    """1.4 cropped to the moving left part and gave both bars its colour."""
+    config = Config(Path(tempfile.mkdtemp()) / "c.json")
+    src = ScreenSource(config, backend_factory=lambda name: Game())
+    src.open()
+    rects = layout_rects("bars", 12, config.sync["edge_depth"])
+    targets = [Target(Device("bars"), {}, rects, np.linspace(0, 1, 12), Smoother())]
+    for k in range(40):
+        out = src.render(targets, k / 30)["bars"]
+    assert src.box == FULL
+    left, right = out[:6], out[6:]
+    assert (left[:, 1] > left[:, 0] + 50).all()          # green on the left
+    assert (right[:, 0] > right[:, 2] + 100).all()       # orange on the right
+
+
+def test_single_colour_lights_get_the_colourful_part():
+    """Lights without segment streaming used to average the whole screen to grey."""
+    zones = np.array([[230, 230, 230], [235, 235, 235], [40, 40, 40], [200, 70, 20]], np.float32)
+    r, g, b = sc.combine(zones)[0]
+    assert r > 150 and r > g * 1.5 and g > b
+    greys = np.array([[200, 200, 200], [50, 50, 50]], np.float32)
+    out = sc.combine(greys)[0]
+    assert abs(out[0] - out[1]) < 1 and abs(out[1] - out[2]) < 1
+
+
+def test_many_colours_give_a_colour_not_grey():
+    """A whole-screen zone full of different colours used to come out grey."""
+    from goveehome.capture.pattern import PatternCapture
+    frame = PatternCapture().grab()
+    for mode in ("vivid", "dominant"):
+        r, g, b = sc.extract(frame, [(0, 0, 1, 1)], mode)[0]
+        assert max(r, g, b) - min(r, g, b) > 150, mode
+    r, g, b = sc.combine(np.array([[255, 0, 0], [0, 255, 255], [0, 255, 0], [255, 0, 255]], np.float32))[0]
+    assert max(r, g, b) - min(r, g, b) > 200

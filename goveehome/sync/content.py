@@ -27,13 +27,15 @@ def _span(active: np.ndarray) -> tuple[int, int] | None:
 
 class ContentTracker:
     def __init__(self, decay: float = 0.9, threshold: float = 4.0, line_share: float = 0.12,
-                 min_area: float = 0.06, stable_frames: int = 12, idle_frames: int = 300):
+                 min_area: float = 0.06, stable_frames: int = 12, idle_frames: int = 300,
+                 max_outside_colour: float = 0.15):
         self.decay = decay                  # how long movement is remembered
         self.threshold = threshold          # brightness change that counts as movement
         self.line_share = line_share        # share of a row/column that must move
         self.min_area = min_area            # smaller areas are ignored (clocks, cursors)
         self.stable_frames = stable_frames
         self.idle_frames = idle_frames      # ~10 s at 30 fps without movement -> whole screen
+        self.max_outside_colour = max_outside_colour  # more colour around it: not a window
         self.box: Box = FULL
         self._prev: np.ndarray | None = None
         self._motion: np.ndarray | None = None
@@ -43,7 +45,7 @@ class ContentTracker:
 
     def reset(self) -> None:
         self.__init__(self.decay, self.threshold, self.line_share, self.min_area,
-                      self.stable_frames, self.idle_frames)
+                      self.stable_frames, self.idle_frames, self.max_outside_colour)
 
     def _measure(self, frame: np.ndarray) -> Box | None:
         h, w = frame.shape[:2]
@@ -69,12 +71,28 @@ class ContentTracker:
             return None
         box = (top, h - 1 - bottom, left, w - 1 - right)
         # nearly the whole screen moves: just use the whole screen
-        if max(box) <= 2:
+        if max(box) <= 2 or area > 0.85:
+            return FULL
+        # Only a video *in a window* should be cropped: around it there is a
+        # web page, desktop or player UI, which is white, grey or black. In a
+        # fullscreen film or game, parts that don't move (a wall behind a
+        # person talking) are still part of the picture and stay in.
+        outside = np.ones((h, w), dtype=bool)
+        outside[top:bottom + 1, left:right + 1] = False
+        px = frame[outside].astype(np.float32)
+        mx = px.max(axis=1)
+        sat = (mx - px.min(axis=1)) / np.maximum(mx, 1.0)
+        colourful = ((sat > 0.3) & (mx > 40)).mean()
+        if colourful > self.max_outside_colour:
             return FULL
         return box
 
     def __call__(self, frame: np.ndarray) -> Box:
         found = self._measure(frame)
+        if found == FULL:
+            # the picture fills the screen: switch back at once, no waiting
+            self.box, self._candidate, self._count, self._idle = FULL, FULL, 0, 0
+            return self.box
         if found is None:
             self._idle += 1
             if self._idle >= self.idle_frames:

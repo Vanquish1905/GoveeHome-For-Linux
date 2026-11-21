@@ -59,24 +59,50 @@ def average(lin: np.ndarray) -> np.ndarray:
     return lin.mean(axis=0)
 
 
-def vivid(lin: np.ndarray, srgb: np.ndarray | None = None) -> np.ndarray:
-    """Mean that lets coloured pixels win over white, grey and black ones.
-
-    Screens are full of white pages, grey UI and dark areas. Lights should
-    show the colour that is in a zone, not a pale mix of it with the white
-    around it. Saturated pixels count up to ~100 times more than grey ones;
-    a zone that really is grey or white still comes out grey or white.
-    """
-    px = srgb.astype(np.float32) if srgb is not None else to_srgb(lin)
+def _hue(px: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Hue (0..1), saturation and value of sRGB pixels."""
     mx = px.max(axis=1)
     mn = px.min(axis=1)
-    sat = (mx - mn) / np.maximum(mx, 1.0)
-    val = mx / 255.0
+    delta = mx - mn
+    sat = delta / np.maximum(mx, 1.0)
+    d = np.maximum(delta, 1e-6)
+    r, g, b = px[:, 0], px[:, 1], px[:, 2]
+    hue = np.where(mx == r, ((g - b) / d) % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) / 6.0
+    return hue % 1.0, sat, mx / 255.0
+
+
+def strongest_colour(srgb: np.ndarray, lin: np.ndarray, bins: int = 36, reach: int = 4,
+                     min_share: float = 0.03) -> np.ndarray:
+    """The colour you notice in an area, in linear light.
+
+    Averaging very different colours gives grey (red + cyan, or a whole
+    rainbow, average out to a pale grey), and white pages and grey UI wash
+    everything out. Instead, pixels are grouped by hue, weighted by how
+    saturated and bright they are, and the strongest colour family (about
+    +-40 degrees of hue) is averaged on its own. Areas that really are grey,
+    white or black stay that way.
+    """
+    px = srgb.astype(np.float32)
+    hue, sat, val = _hue(px)
     colourful = (sat > 0.25) & (val > 0.1)
-    if colourful.mean() < 0.03:
+    if colourful.mean() < min_share:
         return lin.mean(axis=0)
-    weights = 0.04 + 4.0 * sat * sat * val
-    return (lin * weights[:, None]).sum(axis=0) / weights.sum()
+    weights = sat * sat * val
+    idx = (hue * bins).astype(np.int32) % bins
+    hist = np.bincount(idx[colourful], weights=weights[colourful], minlength=bins)
+    # circular smoothing so a colour sitting on a bin border isn't split
+    window = sum(np.roll(hist, k) for k in range(-reach, reach + 1))
+    centre = int(window.argmax())
+    dist = np.abs(((idx - centre) + bins // 2) % bins - bins // 2)
+    chosen = colourful & (dist <= reach)
+    w = weights[chosen] + 1e-6
+    return (lin[chosen] * w[:, None]).sum(axis=0) / w.sum()
+
+
+def vivid(lin: np.ndarray, srgb: np.ndarray | None = None) -> np.ndarray:
+    """The "Colourful" pick: the strongest colour in the zone, see strongest_colour()."""
+    px = srgb if srgb is not None else to_srgb(lin)
+    return strongest_colour(px, lin)
 
 
 def dominant(lin: np.ndarray, srgb: np.ndarray, bins: int = 24) -> np.ndarray:
@@ -202,6 +228,19 @@ class Smoother:
         alpha = np.where(diff > self.CUT_THRESHOLD, np.maximum(alpha, 0.6 + 0.4 * cut), alpha)
         self._value = self._value + (target - self._value) * alpha
         return self._value
+
+
+def combine(colors: np.ndarray) -> np.ndarray:
+    """One colour for a light that can only show one, from its zone colours.
+
+    Same idea as the Colourful pick: the strongest colour family wins, so a
+    light next to a green forest and a white sky turns green, and a screen
+    full of different colours gives one of them, not grey. Returns (1, 3).
+    """
+    c = np.asarray(colors, dtype=np.float32).reshape(-1, 3)
+    if len(c) == 1:
+        return c
+    return to_srgb(strongest_colour(c, to_linear(c), min_share=0.0001))[None, :]
 
 
 def to_rgb_list(colors: np.ndarray) -> list[tuple[int, int, int]]:
