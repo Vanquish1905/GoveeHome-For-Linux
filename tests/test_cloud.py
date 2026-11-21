@@ -4,6 +4,7 @@ import urllib.error
 
 import pytest
 
+from goveehome.protocol import cloud
 from goveehome.protocol.cloud import CloudClient, CloudError, parse_state
 
 
@@ -66,4 +67,39 @@ def test_scenes():
     reply = {"code": 200, "payload": {"capabilities": [{"instance": "lightScene", "parameters": {
         "options": [{"name": "Sunrise", "value": {"id": 1, "paramId": 2}}, {"broken": True}]}}]}}
     scenes = CloudClient("k", opener=make_opener(reply, [])).scenes("H6008", "AA")
-    assert scenes == [{"name": "Sunrise", "value": {"id": 1, "paramId": 2}}]
+    assert scenes == [{"name": "Sunrise", "value": {"id": 1, "paramId": 2}, "instance": "lightScene"}]
+
+
+CAPS = [
+    {"type": "devices.capabilities.segment_color_setting", "instance": "segmentedColorRgb",
+     "parameters": {"dataType": "STRUCT", "fields": [
+         {"fieldName": "segment", "dataType": "Array", "elementRange": {"min": 0, "max": 14}},
+         {"fieldName": "rgb", "dataType": "INTEGER"}]}},
+    {"type": "devices.capabilities.music_setting", "instance": "musicMode",
+     "parameters": {"dataType": "STRUCT", "fields": [
+         {"fieldName": "musicMode", "dataType": "ENUM",
+          "options": [{"name": "Energic", "value": 1}, {"name": "Rhythm", "value": 2}]},
+         {"fieldName": "sensitivity", "dataType": "INTEGER"}]}},
+    {"type": "devices.capabilities.toggle", "instance": "gradientToggle"},
+    {"type": "devices.capabilities.toggle", "instance": "fancyThingToggle"},
+]
+
+
+def test_capability_helpers():
+    assert cloud.segment_count(CAPS) == 15
+    assert cloud.segment_count([]) == 0
+    assert cloud.music_modes(CAPS) == [("Energic", 1), ("Rhythm", 2)]
+    assert cloud.toggles(CAPS) == [("gradientToggle", "Gradient"), ("fancyThingToggle", "Fancything")]
+
+
+def test_segment_and_music_bodies():
+    log = []
+    client = CloudClient("k", opener=make_opener({"code": 200}, log))
+    client.segment_color("H619A", "AA", [3, 1], (0, 0, 255))
+    client.music_mode("H619A", "AA", 2, 150)
+    client.set_scene("H619A", "AA", {"id": 5}, "diyScene")
+    caps = [json.loads(r.data)["payload"]["capability"] for r in log]
+    assert caps[0] == {"type": cloud.CAP_SEGMENT, "instance": "segmentedColorRgb",
+                       "value": {"segment": [1, 3], "rgb": 255}}
+    assert caps[1]["value"] == {"musicMode": 2, "sensitivity": 100}
+    assert caps[2]["instance"] == "diyScene"

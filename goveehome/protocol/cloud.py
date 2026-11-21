@@ -28,6 +28,17 @@ CAP_ON_OFF = "devices.capabilities.on_off"
 CAP_RANGE = "devices.capabilities.range"
 CAP_COLOR = "devices.capabilities.color_setting"
 CAP_SCENE = "devices.capabilities.dynamic_scene"
+CAP_SEGMENT = "devices.capabilities.segment_color_setting"
+CAP_MUSIC = "devices.capabilities.music_setting"
+CAP_TOGGLE = "devices.capabilities.toggle"
+
+TOGGLE_LABELS = {
+    "gradientToggle": "Gradient",
+    "nightlightToggle": "Night light",
+    "dreamViewToggle": "DreamView",
+    "sceneStageToggle": "Scene stage",
+    "oscillationToggle": "Oscillation",
+}
 
 
 class CloudError(Exception):
@@ -50,6 +61,47 @@ def parse_state(capabilities: list[dict]) -> dict:
             out["color"] = int_to_rgb(int(value))
         elif instance == "colorTemperatureK":
             out["kelvin"] = int(value)
+    return out
+
+
+def find_capability(caps: list[dict], instance: str) -> dict | None:
+    return next((c for c in caps or [] if c.get("instance") == instance), None)
+
+
+def _field(cap: dict, name: str) -> dict:
+    fields = (cap.get("parameters") or {}).get("fields") or []
+    return next((f for f in fields if f.get("fieldName") == name), {})
+
+
+def segment_count(caps: list[dict]) -> int:
+    """Number of segments a light exposes through the cloud, 0 if none."""
+    cap = find_capability(caps, "segmentedColorRgb")
+    if not cap:
+        return 0
+    rng = _field(cap, "segment").get("elementRange") or {}
+    try:
+        return int(rng.get("max", -1)) + 1
+    except (TypeError, ValueError):
+        return 0
+
+
+def music_modes(caps: list[dict]) -> list[tuple[str, int]]:
+    """[(name, value)] of the light's own (microphone) music modes."""
+    cap = find_capability(caps, "musicMode")
+    if not cap:
+        return []
+    return [(o["name"], o["value"]) for o in _field(cap, "musicMode").get("options") or []
+            if "name" in o and "value" in o]
+
+
+def toggles(caps: list[dict]) -> list[tuple[str, str]]:
+    """[(instance, label)] of on/off switches the light offers."""
+    out = []
+    for cap in caps or []:
+        if cap.get("type") == CAP_TOGGLE and cap.get("instance"):
+            inst = cap["instance"]
+            label = TOGGLE_LABELS.get(inst) or inst.removesuffix("Toggle").replace("_", " ").capitalize()
+            out.append((inst, label))
     return out
 
 
@@ -117,17 +169,39 @@ class CloudClient:
     def kelvin(self, sku: str, device: str, kelvin: int) -> None:
         self.control(sku, device, CAP_COLOR, "colorTemperatureK", int(kelvin))
 
-    def scenes(self, sku: str, device: str) -> list[dict]:
-        """Return [{'name': ..., 'value': {...}}] usable with set_scene()."""
-        reply = self._request("POST", "/device/scenes", self._envelope(sku, device))
+    def _scene_list(self, path: str, instance: str, sku: str, device: str) -> list[dict]:
+        reply = self._request("POST", path, self._envelope(sku, device))
         out = []
         for cap in (reply.get("payload") or {}).get("capabilities") or []:
-            if cap.get("instance") != "lightScene":
+            if cap.get("instance") != instance:
                 continue
             for option in (cap.get("parameters") or {}).get("options") or []:
                 if "name" in option and "value" in option:
-                    out.append({"name": option["name"], "value": option["value"]})
+                    out.append({"name": option["name"], "value": option["value"], "instance": instance})
         return out
 
-    def set_scene(self, sku: str, device: str, value) -> None:
-        self.control(sku, device, CAP_SCENE, "lightScene", value)
+    def scenes(self, sku: str, device: str) -> list[dict]:
+        """Return [{'name', 'value', 'instance'}] usable with set_scene()."""
+        return self._scene_list("/device/scenes", "lightScene", sku, device)
+
+    def diy_scenes(self, sku: str, device: str) -> list[dict]:
+        """Scenes the user built in the phone app's DIY editor."""
+        return self._scene_list("/device/diy-scenes", "diyScene", sku, device)
+
+    def set_scene(self, sku: str, device: str, value, instance: str = "lightScene") -> None:
+        self.control(sku, device, CAP_SCENE, instance, value)
+
+    def segment_color(self, sku: str, device: str, segments: list[int], rgb: RGB) -> None:
+        self.control(sku, device, CAP_SEGMENT, "segmentedColorRgb",
+                     {"segment": sorted(int(s) for s in segments), "rgb": rgb_to_int(rgb)})
+
+    def segment_brightness(self, sku: str, device: str, segments: list[int], brightness: int) -> None:
+        self.control(sku, device, CAP_SEGMENT, "segmentedBrightness",
+                     {"segment": sorted(int(s) for s in segments), "brightness": int(brightness)})
+
+    def music_mode(self, sku: str, device: str, mode: int, sensitivity: int = 50) -> None:
+        self.control(sku, device, CAP_MUSIC, "musicMode",
+                     {"musicMode": int(mode), "sensitivity": max(0, min(100, int(sensitivity)))})
+
+    def toggle(self, sku: str, device: str, instance: str, on: bool) -> None:
+        self.control(sku, device, CAP_TOGGLE, instance, 1 if on else 0)
