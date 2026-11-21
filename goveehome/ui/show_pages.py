@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from gi.repository import Adw, Gdk, GLib, Gtk
 
 from goveehome import capture
@@ -14,7 +16,7 @@ from goveehome.sync import effects as fx
 from goveehome.sync import music
 from goveehome.sync.engine import Preview
 from goveehome.sync.zones import LAYOUTS
-from goveehome.ui.widgets import ColorDot, Debouncer, SliderRow, rgb_from_rgba, rgba_from_rgb
+from goveehome.ui.widgets import ColorStrip, Debouncer, SliderRow, rgb_from_rgba, rgba_from_rgb
 
 
 class PreviewArea(Gtk.Overlay):
@@ -76,8 +78,10 @@ class LightRow(Adw.ActionRow):
         self.page = page
         self.device = device
         self._updating = False
-        self.dot = ColorDot(14)
-        self.add_prefix(self.dot)
+        # what the light is getting right now, segment by segment
+        self.strip = ColorStrip()
+        self.strip.set_tooltip_text("The colours this light is getting right now")
+        self.add_suffix(self.strip)
         self.switch = Gtk.Switch(valign=Gtk.Align.CENTER)
         self.switch.connect("notify::active", self._toggled)
         self.add_suffix(self.switch)
@@ -171,6 +175,10 @@ class ShowPage(Adw.NavigationPage):
         self.status = Gtk.Label(xalign=0, margin_top=8, wrap=True, label="Not running")
         self.status.add_css_class("dim-label")
         group.add(self.status)
+        self.details = Gtk.Label(xalign=0, wrap=True, visible=False, selectable=True)
+        self.details.add_css_class("dim-label")
+        self.details.add_css_class("caption")
+        group.add(self.details)
         return group
 
     def _build_lights(self):
@@ -309,20 +317,22 @@ class ShowPage(Adw.NavigationPage):
             self.toggle.remove_css_class("destructive-action")
             self.toggle.add_css_class("suggested-action")
             self.status.set_label(message or "Not running")
+            self.details.set_visible(False)
             self.preview.show_preview(None)
             for row in self._rows.values():
-                row.dot.set_rgb(None)
+                row.strip.set_colors([])
 
     def on_preview(self, preview: Preview):
         if not self.engine.running:
             return
         self.preview.show_preview(preview)
         self.status.set_label(self.status_text(preview))
+        self.details.set_label(preview.details)
+        self.details.set_visible(bool(preview.details))
         for device_id, (_rects, colors) in preview.targets.items():
             row = self._rows.get(device_id)
             if row and colors:
-                avg = tuple(int(sum(c[i] for c in colors) / len(colors)) for i in range(3))
-                row.dot.set_rgb(avg)
+                row.strip.set_colors(colors)
 
 
 class ScreenSyncPage(ShowPage):
@@ -611,12 +621,18 @@ class EffectsPage(ShowPage):
         self.page.add(opts)
 
         self.cards: list[GradientCard] = []
+        import time as _time
+        self._t0 = _time.monotonic()
+        self._anim = 0
+        self.connect("showing", self._start_card_animation)
+        self.connect("hiding", self._stop_card_animation)
+        self.connect("map", self._start_card_animation)
         current = section["effect"]
         for category in fx.CATEGORIES:
             group = Adw.PreferencesGroup(title=category)
             flow = _card_flow()
             for effect in (e for e in fx.EFFECTS.values() if e.category == category):
-                card = GradientCard(effect.label, lambda e=effect: fx.card_colors(e, self.params()))
+                card = GradientCard(effect.label, lambda e=effect: self._card_frame(e))
                 card.effect = effect
                 card.set_active(effect.id == current)
                 card.connect("clicked", self._pick)
@@ -625,6 +641,33 @@ class EffectsPage(ShowPage):
             group.add(flow)
             self.page.add(group)
         self._update_option_rows()
+
+    # animated previews: every card plays its effect while the page is visible
+    def _card_frame(self, effect):
+        import time as _time
+        params = self.params()
+        params.reverse = False
+        t = _time.monotonic() - self._t0
+        cols = fx.render(effect.id, np.linspace(0, 1, 24), t, params)
+        return [tuple(int(v) for v in c) for c in cols]
+
+    def _start_card_animation(self, *_):
+        if not self._anim:
+            self._anim = GLib.timeout_add(80, self._animate_cards)
+
+    def _stop_card_animation(self, *_):
+        if self._anim:
+            GLib.source_remove(self._anim)
+            self._anim = 0
+
+    def _animate_cards(self):
+        if not self.get_mapped():
+            self._anim = 0
+            return GLib.SOURCE_REMOVE
+        for card in self.cards:
+            if card.get_mapped():
+                card.swatch.queue_draw()
+        return GLib.SOURCE_CONTINUE
 
     def _color_changed(self, button, _pspec, key):
         self.config.set_in("effects", key, _hex(rgb_from_rgba(button.get_rgba())))

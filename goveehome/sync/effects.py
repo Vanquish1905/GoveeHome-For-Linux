@@ -347,6 +347,212 @@ def _halloween(x, t, p):
     return col * flicker[:, None]
 
 
+# --- animated, in their own colours ------------------------------------------------------
+# These all move along the light, and they also change over time on a single
+# colour light, so every light gets something out of them.
+
+def _gauss(x, centre, width):
+    return np.exp(-((x - centre) / max(0.02, width)) ** 2)
+
+
+def _juggle(x, t, p):
+    """Several coloured dots weaving past each other."""
+    out = np.zeros((len(x), 3), np.float32)
+    for k in range(4):
+        pos = 0.5 + 0.48 * np.sin(t * p.speed * (0.7 + 0.35 * k) + k * 1.7)
+        out += _gauss(x, pos, 0.06 + 0.12 * p.size)[:, None] * hsv(np.array([k / 4 + t * 0.03]), 1, 1)[0]
+    if len(x) == 1:
+        out += hsv(np.array([t * 0.08 * p.speed]), 1, 0.7)[0]
+    return out
+
+
+def _sinelon(x, t, p):
+    """One dot sweeping back and forth with a fading tail, changing colour."""
+    pos = 0.5 + 0.5 * np.sin(t * 1.3 * p.speed)
+    vel = np.cos(t * 1.3 * p.speed)
+    d = (x - pos) * (-np.sign(vel) or 1)
+    tail = np.where(d >= 0, np.exp(-d / max(0.05, p.size * 0.6)), np.exp(d / 0.03))
+    color = hsv(np.array([t * 0.07 * p.speed]), 1, 1)[0]
+    return tail[:, None] * color
+
+
+def _bpm(x, t, p):
+    """Rainbow bands pulsing to a beat."""
+    beat = 0.5 + 0.5 * np.sin(TAU * (t * 2.0 * p.speed) - x * 6)
+    return hsv(x * 0.6 + t * 0.1 * p.speed, 1.0, 0.25 + 0.75 * beat)
+
+
+def _confetti(x, t, p):
+    """Random coloured sparks popping up and fading."""
+    n = max(1, len(x))
+    idx = np.arange(n)
+    rate = 3.0 * p.speed
+    slot = np.floor(t * rate + rand(idx, 7.0) * 3)
+    phase = (t * rate + rand(idx, 7.0) * 3) % 1.0
+    on = rand(idx, slot) > 0.45
+    hue = rand(idx, slot, 2.0)
+    if len(x) == 1:                     # one colour: a new spark every beat
+        on = np.array([True])
+    return hsv(hue, 0.9, np.where(on, 0.15 + 0.85 * (1 - phase) ** 1.5, 0.0))
+
+
+def _bouncing(x, t, p):
+    """Coloured balls bouncing up and down the light."""
+    out = np.zeros((len(x), 3), np.float32)
+    cols = [(255, 40, 0), (0, 255, 80), (40, 90, 255)]
+    for k, col in enumerate(cols):
+        period = (1.6 + 0.5 * k) / p.speed
+        ph = (t + k * 0.7) % period / period
+        height = 1 - (2 * ph - 1) ** 2                    # parabola: up and down
+        out += _gauss(x, height, 0.05 + 0.1 * p.size)[:, None] * np.asarray(col, np.float32)
+    if len(x) == 1:
+        out = hsv(np.array([np.floor(t * p.speed) / 3]), 1, 1)
+    return out
+
+
+def _ripple(x, t, p):
+    """Rings of colour flowing out from the middle."""
+    d = np.abs(x - 0.5) * 2
+    band = d * 3 - t * 0.8 * p.speed
+    hue = np.floor(band) * 0.13
+    level = 0.35 + 0.65 * (0.5 + 0.5 * np.cos(TAU * band))
+    return hsv(hue, 1.0, level)
+
+
+def _rainbow_chase(x, t, p):
+    n = max(3, len(x) if len(x) > 1 else 3)
+    step = int(t * 5 * p.speed)
+    idx = _seg_index(x, n)
+    lit = (idx + step) % 3 == 0
+    return hsv(x * 0.8 + t * 0.05 * p.speed, 1.0, np.where(lit, 1.0, 0.08))
+
+
+def _color_blocks(x, t, p, colors):
+    shift = t * 0.35 * p.speed
+    k = np.floor((x * (2 + 6 * p.size) - shift)) % len(colors)
+    return np.asarray(colors, np.float32)[k.astype(int)]
+
+
+def _blocks(x, t, p):
+    """Blocks of bright colours marching along."""
+    out = _color_blocks(x, t, p, [(255, 0, 0), (255, 200, 0), (0, 200, 60), (0, 90, 255), (180, 0, 255)])
+    if len(x) == 1:
+        out = _color_blocks(np.array([t * 0.2 * p.speed % 1]), 0, p,
+                            [(255, 0, 0), (255, 200, 0), (0, 200, 60), (0, 90, 255), (180, 0, 255)])
+    return out
+
+
+def _rgb_spin(x, t, p):
+    out = _color_blocks(x, t * 1.5, p, [(255, 0, 0), (0, 255, 0), (0, 0, 255)])
+    if len(x) == 1:
+        out = palette([(255, 0, 0), (0, 255, 0), (0, 0, 255)], np.array([t * 0.3 * p.speed]))
+    return out
+
+
+def _candy_stripes(x, t, p):
+    u = (x * (3 + 6 * p.size) - t * 0.5 * p.speed) % 1.0
+    if len(x) == 1:
+        f = 0.5 + 0.5 * np.sin(TAU * t * 0.4 * p.speed)
+        return np.array([[255, 0, 40]], np.float32) * (1 - f) + np.array([[255, 220, 220]], np.float32) * f
+    return np.where((u < 0.5)[:, None], np.array([255, 0, 40], np.float32),
+                    np.array([255, 220, 220], np.float32))
+
+
+def _neon_chase(x, t, p):
+    u = x * 3 - t * 0.6 * p.speed
+    f = 0.5 + 0.5 * np.sin(TAU * u)
+    a = np.array([255, 0, 200], np.float32)
+    b = np.array([0, 230, 255], np.float32)
+    return a * (f ** 3)[:, None] + b * ((1 - f) ** 3)[:, None]
+
+
+def _pingpong(x, t, p):
+    """Two colours racing towards each other and bouncing off."""
+    pos = 0.5 - 0.5 * np.cos(TAU * t * 0.3 * p.speed)
+    w = 0.05 + 0.12 * p.size
+    a = _gauss(x, pos * 0.5, w)[:, None] * np.array([255, 60, 0], np.float32)
+    b = _gauss(x, 1 - pos * 0.5, w)[:, None] * np.array([0, 120, 255], np.float32)
+    out = a + b
+    if len(x) == 1:
+        out = palette([(255, 60, 0), (0, 120, 255)], np.array([pos]), cyclic=False)
+    return out
+
+
+def _pride(x, t, p):
+    """Colour waves: slowly drifting rainbow with breathing brightness."""
+    hue = x * (0.3 + 0.2 * np.sin(t * 0.13 * p.speed)) + t * 0.05 * p.speed
+    level = 0.45 + 0.55 * (0.5 + 0.5 * np.sin(TAU * (x * 1.5 + t * 0.21 * p.speed)))
+    return hsv(hue, 0.85 + 0.15 * np.sin(t * 0.5), level)
+
+
+def _kaleidoscope(x, t, p):
+    d = np.abs(x - 0.5) * 2
+    hue = d * 0.7 - t * 0.15 * p.speed + 0.2 * np.sin(t * 0.7 * p.speed)
+    return hsv(hue, 1.0, 0.5 + 0.5 * np.cos(TAU * (d * 2 - t * 0.4 * p.speed)) ** 2)
+
+
+def _galaxy(x, t, p):
+    swirl = noise(x * 2.5, t * 0.5 * p.speed) * 0.7 + x * 0.3 + t * 0.02 * p.speed
+    base = palette([(60, 0, 140), (0, 40, 200), (200, 0, 160), (20, 0, 80)], swirl)
+    stars = np.clip((noise(x * 60, t * 2.5 * p.speed, 3.0) - 0.8) * 5, 0, 1)
+    return base + stars[:, None] * np.array([255, 240, 255], np.float32)
+
+
+def _sparkle_rainbow(x, t, p):
+    base = hsv(x * 0.5 + t * 0.06 * p.speed, 1.0, 0.45)
+    spark = np.clip((noise(x * 70, t * 4 * p.speed, 11.0) - 0.75) * 4, 0, 1)
+    return base + spark[:, None] * 255
+
+
+def _dna(x, t, p):
+    """Two colour strands winding around each other."""
+    a = 0.5 + 0.5 * np.sin(TAU * (x * 2 - t * 0.4 * p.speed))
+    b = 0.5 + 0.5 * np.sin(TAU * (x * 2 - t * 0.4 * p.speed) + np.pi)
+    return (a ** 4)[:, None] * np.array([255, 0, 120], np.float32) + \
+        (b ** 4)[:, None] * np.array([0, 200, 255], np.float32)
+
+
+def _spectrum_sweep(x, t, p):
+    phase = t * 0.25 * p.speed
+    front = phase % 1.0
+    hue_now = np.floor(phase) * 0.17
+    return np.where((x <= front)[:, None], hsv(np.full_like(x, hue_now + 0.17), 1, 1),
+                    hsv(np.full_like(x, hue_now), 1, 1))
+
+
+def _flow(colors):
+    def fn(x, t, p):
+        u = x * (0.4 + p.size) + t * 0.08 * p.speed + 0.15 * np.sin(TAU * (x - t * 0.1 * p.speed))
+        return palette(colors, u)
+    return fn
+
+
+def _comet(colors, rainbow=False):
+    def fn(x, t, p):
+        head = (t * 0.4 * p.speed) % 1.4
+        d = head - x
+        tail = np.where(d >= 0, np.clip(1 - d / max(0.08, p.size + 0.1), 0, 1) ** 2, 0.0)
+        if rainbow:
+            col = hsv(d * 1.5 + t * 0.1, 1, 1)
+        else:
+            col = palette(colors, np.clip(d * 6, 0, 1) ** 0.5 * 0.5 + 0.25, cyclic=False)
+        out = col * tail[:, None]
+        if len(x) == 1:
+            out = palette(colors if not rainbow else [(255, 0, 0), (0, 255, 0), (0, 0, 255)],
+                          np.array([t * 0.15 * p.speed]))
+        return out
+    return fn
+
+
+def _breathe_cycle(colors):
+    def fn(x, t, p):
+        phase = t * 0.2 * p.speed
+        level = 0.12 + 0.88 * (0.5 - 0.5 * np.cos(TAU * phase)) ** 1.3
+        col = np.asarray(colors, np.float32)[int(phase) % len(colors)]
+        return _tile(col, len(x)) * level
+    return fn
+
+
 @dataclass(frozen=True)
 class Effect:
     id: str
@@ -358,9 +564,43 @@ class Effect:
     uses_size: bool = False
 
 
-CATEGORIES = ["Colourful", "Your colours", "Nature", "Party and seasons"]
+CATEGORIES = ["Animated", "Colourful", "Your colours", "Nature", "Party and seasons"]
+
+_ANIMATED = [
+    ("juggle", "Juggle", _juggle, ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255)), True),
+    ("sinelon", "Sweep", _sinelon, ((0, 0, 0), (255, 0, 120), (0, 0, 0)), True),
+    ("bpm", "Beat bands", _bpm, ((255, 0, 80), (255, 200, 0), (0, 120, 255)), False),
+    ("confetti", "Confetti", _confetti, ((255, 0, 150), (0, 255, 100), (255, 220, 0), (0, 100, 255)), False),
+    ("bouncing", "Bouncing balls", _bouncing, ((255, 40, 0), (0, 255, 80), (40, 90, 255)), True),
+    ("ripple", "Ripple", _ripple, ((0, 200, 255), (255, 0, 160), (0, 200, 255)), False),
+    ("rainbow_chase", "Rainbow chase", _rainbow_chase, ((255, 0, 0), (0, 0, 0), (0, 255, 0), (0, 0, 0), (0, 0, 255)), False),
+    ("blocks", "Colour blocks", _blocks, ((255, 0, 0), (255, 200, 0), (0, 200, 60), (0, 90, 255)), True),
+    ("rgb_spin", "RGB spin", _rgb_spin, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), True),
+    ("candy_stripes", "Candy stripes", _candy_stripes, ((255, 0, 40), (255, 220, 220), (255, 0, 40)), True),
+    ("neon_chase", "Neon chase", _neon_chase, ((255, 0, 200), (0, 230, 255), (255, 0, 200)), False),
+    ("pingpong", "Ping pong", _pingpong, ((255, 60, 0), (0, 0, 0), (0, 120, 255)), True),
+    ("pride", "Colour waves", _pride, ((255, 0, 0), (255, 255, 0), (0, 255, 120), (120, 0, 255)), False),
+    ("kaleidoscope", "Kaleidoscope", _kaleidoscope, ((0, 255, 200), (255, 0, 200), (0, 255, 200)), False),
+    ("galaxy", "Galaxy", _galaxy, ((60, 0, 140), (0, 40, 200), (200, 0, 160)), False),
+    ("sparkle", "Rainbow sparkle", _sparkle_rainbow, ((120, 0, 0), (255, 255, 255), (0, 0, 120)), False),
+    ("dna", "Double helix", _dna, ((255, 0, 120), (0, 200, 255), (255, 0, 120)), False),
+    ("sweep_rainbow", "Spectrum sweep", _spectrum_sweep, ((255, 0, 0), (255, 255, 0), (0, 255, 0)), False),
+    ("rainbow_comet", "Rainbow comet", _comet([], rainbow=True), ((0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)), True),
+    ("blue_comet", "Ice comet", _comet([(255, 255, 255), (0, 160, 255), (0, 20, 120)]), ((0, 20, 120), (0, 160, 255), (255, 255, 255)), True),
+    ("pink_comet", "Pink comet", _comet([(255, 220, 255), (255, 0, 150), (90, 0, 120)]), ((90, 0, 120), (255, 0, 150), (255, 220, 255)), True),
+    ("fire_comet", "Fire comet", _comet([(255, 240, 150), (255, 90, 0), (120, 0, 0)]), ((120, 0, 0), (255, 90, 0), (255, 240, 150)), True),
+    ("green_comet", "Green comet", _comet([(220, 255, 220), (0, 255, 60), (0, 60, 20)]), ((0, 60, 20), (0, 255, 60), (220, 255, 220)), True),
+    ("flow_cotton", "Cotton candy", _flow([(255, 120, 200), (120, 200, 255), (255, 200, 240)]), ((255, 120, 200), (120, 200, 255), (255, 200, 240)), True),
+    ("flow_tropical", "Tropical flow", _flow([(0, 255, 180), (255, 220, 0), (255, 60, 120), (0, 180, 255)]), ((0, 255, 180), (255, 220, 0), (255, 60, 120)), True),
+    ("flow_inferno", "Inferno", _flow([(255, 0, 0), (255, 120, 0), (180, 0, 120), (255, 40, 0)]), ((255, 0, 0), (255, 120, 0), (180, 0, 120)), True),
+    ("flow_mint", "Mint and lime", _flow([(0, 255, 160), (160, 255, 0), (0, 200, 120)]), ((0, 255, 160), (160, 255, 0), (0, 200, 120)), True),
+    ("flow_cyber", "Cyber flow", _flow([(255, 0, 120), (0, 240, 255), (250, 240, 0), (120, 0, 255)]), ((255, 0, 120), (0, 240, 255), (250, 240, 0)), True),
+    ("flow_ocean", "Deep sea flow", _flow([(0, 30, 150), (0, 200, 220), (0, 90, 255), (60, 0, 200)]), ((0, 30, 150), (0, 200, 220), (60, 0, 200)), True),
+    ("breathe_rgb", "Breathing colours", _breathe_cycle([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255), (255, 200, 0), (0, 255, 255)]), ((255, 0, 0), (0, 255, 0), (0, 0, 255)), False),
+]
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in [
+    *[Effect(eid, label, fn, "Animated", 0, prev, size) for eid, label, fn, prev, size in _ANIMATED],
     # colourful
     Effect("rainbow", "Rainbow", _rainbow, "Colourful", 0, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), True),
     Effect("cycle", "Colour cycle", _cycle, "Colourful", 0, ((255, 0, 120), (255, 160, 0), (0, 200, 255))),

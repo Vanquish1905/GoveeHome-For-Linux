@@ -153,3 +153,17 @@ def test_sunrise_gets_brighter():
     early = effects.render("sunrise", x, 10, effects.Params(speed=1.0)).mean()
     late = effects.render("sunrise", x, 500, effects.Params(speed=1.0)).mean()
     assert late > early * 5
+
+
+@pytest.mark.parametrize("effect", [e.id for e in effects.EFFECTS.values() if e.category == "Animated"])
+def test_animated_effects_move_and_are_colourful(effect):
+    x = np.linspace(0, 1, 12)
+    p = effects.Params()
+    moves = max(np.abs(effects.render(effect, x, t, p) - effects.render(effect, x, t + 0.7, p)).max()
+                for t in (0.5, 1.3, 4.1))
+    single = max(np.abs(effects.render(effect, np.array([0.5]), t, p)
+                        - effects.render(effect, np.array([0.5]), t + 1.9, p)).max() for t in (0.5, 1.3, 4.1))
+    colour = max(np.ptp(effects.render(effect, x, t, p), axis=1).max() for t in (0.5, 1.3, 4.1, 7.7))
+    assert moves > 20, "doesn't move along the light"
+    assert single > 10, "doesn't change on a single colour light"
+    assert colour > 80, "not colourful"
