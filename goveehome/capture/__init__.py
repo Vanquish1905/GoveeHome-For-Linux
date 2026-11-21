@@ -14,7 +14,7 @@ __all__ = ["CaptureBackend", "CaptureError", "BACKENDS", "available_backends", "
 BACKENDS: dict[str, str] = {
     "auto": "Automatic",
     "portal": portal.PortalCapture.label,
-    "x11": x11.X11Capture.label,
+    "x11": "X11",
     "grim": grim.GrimCapture.label,
     "pattern": PatternCapture.label,
 }
@@ -64,7 +64,7 @@ def create(backend: str, config=None) -> CaptureBackend:
         token = config.get("portal_restore_token", "") if config is not None else ""
         return portal.PortalCapture(restore_token=token, on_token=save_token)
     if backend == "x11":
-        return x11.X11Capture(monitor=int(sync.get("monitor", 0)))
+        return x11.X11Capture(monitor=int(sync.get("monitor", 1)))
     if backend == "grim":
         return grim.GrimCapture()
     if backend == "pattern":

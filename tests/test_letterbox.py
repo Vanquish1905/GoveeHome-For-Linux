@@ -24,6 +24,21 @@ def test_one_sided_dark_area_is_not_a_bar():
     assert lb.detect(f) == (0, 0, 0, 0)
 
 
+def test_dark_scene_is_not_a_letterbox():
+    # a gradual fade to dark at top and bottom, no clear edge
+    f = np.zeros((90, 160, 3), np.uint8)
+    for y in range(90):
+        f[y] = int(120 * min(y, 89 - y) / 45)
+    assert lb.detect(f) == (0, 0, 0, 0)
+
+
+def test_asymmetric_dark_area_is_not_a_letterbox():
+    f = np.full((90, 160, 3), 140, dtype=np.uint8)
+    f[:10] = 0
+    f[-20:] = 0
+    assert lb.detect(f) == (0, 0, 0, 0)
+
+
 def test_detector_waits_for_stable_bars_and_drops_them_at_once():
     d = lb.BarDetector(stable_frames=3)
     assert d(film(12)) == (0, 0, 0, 0)

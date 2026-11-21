@@ -20,30 +20,40 @@ def _bar(dark: np.ndarray) -> int:
     return int(np.argmin(dark))
 
 
-def detect(frame: np.ndarray, threshold: int = 18, max_fraction: float = 0.3) -> Box:
+def detect(frame: np.ndarray, threshold: int = 18, max_fraction: float = 0.3,
+           edge: int = 40) -> Box:
+    """Find letterbox / pillarbox bars.
+
+    Real bars are pitch black, the same size on both sides and end in a
+    clear edge to the picture. Dark film scenes fade out gradually and are
+    rarely symmetric, so they don't count as bars.
+    """
     h, w = frame.shape[:2]
     peak = frame.max(axis=2)
-    dark_rows = peak.max(axis=1) < threshold
-    dark_cols = peak.max(axis=0) < threshold
+    row_peak = peak.max(axis=1)
+    col_peak = peak.max(axis=0)
+    dark_rows = row_peak < threshold
+    dark_cols = col_peak < threshold
     top, bottom = _bar(dark_rows), _bar(dark_rows[::-1])
     left, right = _bar(dark_cols), _bar(dark_cols[::-1])
-    v = min(top, bottom)
-    hz = min(left, right)
-    # whole frame dark or bars implausibly large: don't crop
-    if v >= h * max_fraction:
-        v = 0
-    if hz >= w * max_fraction:
-        hz = 0
-    # tolerate a row of compression noise at the bar edge
-    if v <= 1:
-        v = 0
-    if hz <= 1:
-        hz = 0
+
+    def accept(a: int, b: int, size: int, peaks: np.ndarray) -> int:
+        bar = min(a, b)
+        if bar <= 1 or bar >= size * max_fraction:
+            return 0
+        if abs(a - b) > max(2, size // 40):
+            return 0                      # not symmetric: a dark scene, not bars
+        if peaks[a] < edge or peaks[size - 1 - b] < edge:
+            return 0                      # no sharp edge where the picture starts
+        return bar
+
+    v = accept(top, bottom, h, row_peak)
+    hz = accept(left, right, w, col_peak)
     return v, v, hz, hz
 
 
 class BarDetector:
-    def __init__(self, stable_frames: int = 10, threshold: int = 18):
+    def __init__(self, stable_frames: int = 30, threshold: int = 18):
         self.stable_frames = stable_frames
         self.threshold = threshold
         self.box: Box = (0, 0, 0, 0)

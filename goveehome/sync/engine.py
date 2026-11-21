@@ -60,6 +60,7 @@ class Preview:
     targets: dict[str, tuple[list[Rect], list[tuple[int, int, int]]]]
     fps: float
     backend: str
+    delay: float | None = None     # seconds from screen to light, screen sync only
 
 
 class Source:
@@ -98,6 +99,9 @@ class ScreenSource(Source):
         self.detector = BarDetector()
         self.box = (0, 0, 0, 0)
         self.frame: np.ndarray | None = None
+        self._black_run = 0
+        self.grabbed_at: float | None = None
+        self.capture_age: float | None = None
 
     def open(self) -> None:
         self.backend = self._factory(self.config.sync.get("backend", "auto"))
@@ -114,8 +118,22 @@ class ScreenSource(Source):
     def smoothing(self) -> float:
         return float(self.config.sync.get("smoothing", 0.04))
 
+    BLACK = 6              # a frame whose brightest pixel is below this is "black"
+    BLACK_CONFIRM = 3      # black frames needed in a row before we believe them
+
     def render(self, targets, now):
         frame = self.backend.grab()
+        self.grabbed_at = time.monotonic()
+        self.capture_age = getattr(self.backend, "last_age", None)
+        # Capture sometimes hands out a single empty (black) frame, e.g. when
+        # the compositor reallocates buffers. Passing it on makes every light
+        # flash off for a moment, so a black frame only counts once it lasts.
+        if int(frame.max()) < self.BLACK:
+            self._black_run += 1
+            if self._black_run < self.BLACK_CONFIRM and self.frame is not None:
+                frame = self.frame
+        else:
+            self._black_run = 0
         self.frame = frame
         sync = self.config.sync
         if sync.get("letterbox", True):
@@ -158,6 +176,7 @@ class LightEngine:
         self.device_ids: list[str] | None = None   # None = every light that has this show enabled
         self.backend_name = ""
         self.fps = 0.0
+        self.delay: float | None = None
 
     @property
     def running(self) -> bool:
@@ -225,6 +244,7 @@ class LightEngine:
             self._notify(False, f"Could not start: {exc}")
             return
         self.backend_name = source.label
+        self.delay = None
         targets = self._targets(source.kind)
         if not targets:
             source.close()
@@ -246,6 +266,10 @@ class LightEngine:
                 outputs = source.render(targets, started)
                 now = time.monotonic()
                 self._send(targets, outputs, source, now)
+                grabbed = getattr(source, "grabbed_at", None)
+                if grabbed is not None:
+                    delay = time.monotonic() - grabbed + (getattr(source, "capture_age", None) or 0.0)
+                    self.delay = delay if self.delay is None else self.delay * 0.9 + delay * 0.1
                 frame_times.append(now)
                 while frame_times and now - frame_times[0] > 2.0:
                     frame_times.pop(0)
@@ -258,6 +282,7 @@ class LightEngine:
                         targets={t.device.id: (source.preview_rects(t), t.display) for t in targets},
                         fps=self.fps,
                         backend=self.backend_name,
+                        delay=self.delay,
                     ))
                 fps = max(1, min(60, source.fps()))
                 delay = 1.0 / fps - (time.monotonic() - started)

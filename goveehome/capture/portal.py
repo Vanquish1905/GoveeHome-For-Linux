@@ -15,15 +15,9 @@ import time
 import uuid
 from collections.abc import Callable
 
-import numpy as np
 
-from goveehome.capture.base import FRAME_HEIGHT, FRAME_WIDTH, CaptureBackend, CaptureError, downscale
-
-# Plain bilinear scaling straight to 160x90 samples about 1% of a 4K screen
-# and gives noisy, wrong colours. Lanczos takes every pixel into account when
-# shrinking; it goes to 4x the target and the last step is an exact average.
-SCALE_WIDTH = FRAME_WIDTH * 4
-SCALE_HEIGHT = FRAME_HEIGHT * 4
+from goveehome.capture.base import CaptureError
+from goveehome.capture.gst import GstCapture, has_element
 
 log = logging.getLogger(__name__)
 
@@ -57,19 +51,18 @@ def available() -> bool:
         return False
 
 
-class PortalCapture(CaptureBackend):
+class PortalCapture(GstCapture):
     id = "portal"
     label = "Screen share portal (Wayland)"
 
     def __init__(self, restore_token: str = "", on_token: Callable[[str], None] | None = None):
+        super().__init__()
+        self._node = 0
         self.restore_token = restore_token
         self.on_token = on_token
         self._bus = None
         self._session: str | None = None
-        self._pipeline = None
-        self._sink = None
         self._fd: int | None = None
-        self._last: np.ndarray | None = None
 
     # portal plumbing -----------------------------------------------------------
     def _request(self, ctx, method: str, signature: str, args: tuple, options: dict) -> dict:
@@ -149,66 +142,22 @@ class PortalCapture(CaptureBackend):
             ctx.pop_thread_default()
 
     # backend API -----------------------------------------------------------------
+    def source_description(self) -> str:
+        return f"pipewiresrc name=src fd={self._fd} path={self._node} do-timestamp=true"
+
+    def source_properties(self) -> dict:
+        # hand buffers back to the compositor at once so it never has to wait
+        # for us, and repeat the last frame while the screen doesn't change
+        return {"always-copy": True, "keepalive-time": 500}
+
     def open(self) -> None:
-        try:
-            _, _, Gst = _gi()
-        except (ImportError, ValueError) as exc:
-            raise CaptureError("Wayland capture needs PyGObject and GStreamer") from exc
-        Gst.init(None)
-        if Gst.ElementFactory.find("pipewiresrc") is None:
+        if not has_element("pipewiresrc"):
             raise CaptureError("GStreamer PipeWire plugin missing (install pipewire-gstreamer)")
-        self._fd, node_id = self._negotiate()
-        desc = (
-            f"pipewiresrc name=src fd={self._fd} path={node_id} do-timestamp=true ! "
-            f"videoscale method=lanczos ! video/x-raw,width={SCALE_WIDTH},height={SCALE_HEIGHT} ! "
-            f"videoconvert ! video/x-raw,format=RGB ! "
-            f"appsink name=sink max-buffers=1 drop=true sync=false"
-        )
-        self._pipeline = Gst.parse_launch(desc)
-        src = self._pipeline.get_by_name("src")
-        if src is not None and src.find_property("keepalive-time"):
-            src.set_property("keepalive-time", 500)
-        self._sink = self._pipeline.get_by_name("sink")
-        if self._pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
-            self.close()
-            raise CaptureError("Could not start the PipeWire stream")
-
-    def _check_bus(self) -> None:
-        _, _, Gst = _gi()
-        bus = self._pipeline.get_bus()
-        msg = bus.pop_filtered(Gst.MessageType.ERROR)
-        if msg:
-            err, _debug = msg.parse_error()
-            raise CaptureError(f"PipeWire stream error: {err.message}")
-
-    def grab(self) -> np.ndarray:
-        if self._pipeline is None:
-            self.open()
-        _, _, Gst = _gi()
-        # PipeWire only delivers frames when the screen changes, so a static
-        # desktop simply keeps the last frame.
-        sample = self._sink.emit("try-pull-sample", 100 * Gst.MSECOND)
-        if sample is None:
-            self._check_bus()
-            if self._last is None:
-                return np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
-            return self._last
-        buf = sample.get_buffer()
-        structure = sample.get_caps().get_structure(0)
-        width = structure.get_value("width")
-        height = structure.get_value("height")
-        data = buf.extract_dup(0, buf.get_size())
-        stride = len(data) // height
-        rows = np.frombuffer(data, dtype=np.uint8).reshape(height, stride)
-        self._last = downscale(rows[:, : width * 3].reshape(height, width, 3))
-        return self._last
+        self._fd, self._node = self._negotiate()
+        self.start_pipeline()
 
     def close(self) -> None:
-        if self._pipeline is not None:
-            _, _, Gst = _gi()
-            self._pipeline.set_state(Gst.State.NULL)
-            self._pipeline = None
-            self._sink = None
+        super().close()
         if self._fd is not None:
             try:
                 os.close(self._fd)
