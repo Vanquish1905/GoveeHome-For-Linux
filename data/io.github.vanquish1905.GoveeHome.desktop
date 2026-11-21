@@ -2,10 +2,10 @@
 Type=Application
 Name=GoveeHome
 GenericName=Light Control
-Comment=Control Govee lights and sync them with your screen
+Comment=Control Govee lights and sync them with your screen and music
 Exec=goveehome
 Icon=io.github.vanquish1905.GoveeHome
 Terminal=false
 Categories=Utility;GTK;
-Keywords=govee;led;light;ambient;ambilight;rgb;strip;dreamview;
+Keywords=govee;led;light;ambient;ambilight;rgb;strip;dreamview;music;
 StartupNotify=true

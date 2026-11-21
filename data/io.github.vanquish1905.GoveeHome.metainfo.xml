@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>EPL-2.0</project_license>
   <name>GoveeHome</name>
-  <summary>Control Govee lights and sync them with your screen</summary>
+  <summary>Control Govee lights and sync them with your screen and music</summary>
   <developer id="io.github.vanquish1905">
     <name>Colin</name>
   </developer>
@@ -15,8 +15,11 @@
       cloud.
     </p>
     <ul>
-      <li>Power, brightness, colour and white temperature</li>
+      <li>Power, brightness, colour, white temperature, saved colours and sleep timers</li>
       <li>Screen sync: lights follow the colours on your screen, per segment on DreamView capable lights</li>
+      <li>Music sync from whatever the PC plays, no microphone needed</li>
+      <li>Built-in effects that run without the cloud</li>
+      <li>Groups, and lights that follow the computer to sleep and back</li>
       <li>Works on Wayland (GNOME, KDE Plasma) and X11</li>
       <li>Optional Govee cloud API key for lights without LAN control and for scenes</li>
       <li>Optional Bluetooth support</li>
@@ -33,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.1.0" date="2026-11-21">
+      <description>
+        <p>Much more accurate and faster screen sync, music sync, effects, groups, colour
+        correction, saved colours, timers, background mode and cloud segment control.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-21"/>
   </releases>
 </component>

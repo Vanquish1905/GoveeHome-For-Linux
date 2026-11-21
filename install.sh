@@ -40,25 +40,29 @@ install_deps() {
     if command -v dnf >/dev/null; then
         say "Installing packages with dnf"
         sudo dnf install -y python3 python3-pip python3-gobject python3-cairo python3-numpy \
-            gtk4 libadwaita gstreamer1-plugins-base pipewire-gstreamer
+            python3-pillow gtk4 libadwaita gstreamer1-plugins-base gstreamer1-plugins-good \
+            pipewire-gstreamer
     elif command -v apt-get >/dev/null; then
         say "Installing packages with apt"
         sudo apt-get update
         sudo apt-get install -y python3 python3-venv python3-pip python3-gi python3-gi-cairo \
-            python3-numpy gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 \
-            gstreamer1.0-plugins-base gstreamer1.0-pipewire
+            python3-numpy python3-pil gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio \
+            gstreamer1.0-pipewire
     elif command -v pacman >/dev/null; then
         say "Installing packages with pacman"
         sudo pacman -S --needed --noconfirm python python-pip python-gobject python-cairo \
-            python-numpy gtk4 libadwaita gst-plugins-base gst-plugin-pipewire
+            python-numpy python-pillow gtk4 libadwaita gst-plugins-base gst-plugins-good \
+            gst-plugin-pipewire
     elif command -v zypper >/dev/null; then
         say "Installing packages with zypper"
         sudo zypper install -y python3 python3-pip python3-gobject python3-gobject-cairo \
-            python3-numpy gtk4 libadwaita-1-0 typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 \
-            gstreamer-plugins-base gstreamer-plugin-pipewire
+            python3-numpy python3-Pillow gtk4 libadwaita-1-0 typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 \
+            gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugin-pipewire
     else
         say "Unknown package manager, skipping system packages."
-        echo "    Install PyGObject, GTK 4, libadwaita, numpy and the GStreamer PipeWire plugin yourself."
+        echo "    Install PyGObject, GTK 4, libadwaita, numpy, Pillow and the GStreamer base, good"
+        echo "    and PipeWire plugins yourself."
     fi
 }
 

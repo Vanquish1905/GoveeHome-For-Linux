@@ -1,5 +1,5 @@
 Name:           goveehome
-Version:        1.0.0
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Control Govee lights on Linux and sync them with your screen
 
@@ -16,9 +16,11 @@ BuildRequires:  libappstream-glib
 Requires:       python3-gobject
 Requires:       python3-cairo
 Requires:       python3-numpy
+Requires:       python3-pillow
 Requires:       gtk4
 Requires:       libadwaita >= 1.4
 Requires:       gstreamer1-plugins-base
+Requires:       gstreamer1-plugins-good
 Requires:       pipewire-gstreamer
 Recommends:     python3-mss
 Recommends:     python3-bleak
@@ -66,5 +68,7 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/*.metainfo.xml
 %{_userunitdir}/goveehome-sync.service
 
 %changelog
+* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.1.0-1
+- Accurate, faster screen sync; music sync; effects; groups; colour correction
 * Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.0.0-1
 - First release

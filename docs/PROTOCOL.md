@@ -111,5 +111,13 @@ Request bodies:
 | Colour | `devices.capabilities.color_setting` | `colorRgb` | `(R << 16) + (G << 8) + B` |
 | White | `devices.capabilities.color_setting` | `colorTemperatureK` | Kelvin |
 | Scene | `devices.capabilities.dynamic_scene` | `lightScene` | option value from `/device/scenes` |
+| DIY scene | `devices.capabilities.dynamic_scene` | `diyScene` | option value from `/device/diy-scenes` |
+| Segment colour | `devices.capabilities.segment_color_setting` | `segmentedColorRgb` | `{"segment": [0, 1], "rgb": int}` |
+| Segment brightness | `devices.capabilities.segment_color_setting` | `segmentedBrightness` | `{"segment": [0, 1], "brightness": 0..100}` |
+| Music mode (light's mic) | `devices.capabilities.music_setting` | `musicMode` | `{"musicMode": id, "sensitivity": 0..100}` |
+| Switches | `devices.capabilities.toggle` | e.g. `gradientToggle` | `0` / `1` |
+
+The number of segments and the music mode ids come from the capability list in
+`/user/devices` (`elementRange` of the `segment` field, `options` of the `musicMode` field).
 
 Limit: 10 000 requests per day per key.
