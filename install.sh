@@ -10,6 +10,7 @@ VENV="$APP_DIR/venv"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DEPS=1
 OPEN_FIREWALL=ask
+UPDATE=0
 
 usage() {
     cat <<USAGE
@@ -18,6 +19,8 @@ Usage: ./install.sh [options]
   --no-deps          don't install distribution packages
   --firewall         open UDP port 4002 in firewalld without asking
   --no-firewall      never touch the firewall
+  --update           upgrade an existing install in place (used by the in-app
+                     updater): no system packages, no firewall, no questions
   -h, --help         show this help
 
 Installs into $PREFIX (override with PREFIX=/some/where ./install.sh).
@@ -29,12 +32,17 @@ for arg in "$@"; do
         --no-deps) INSTALL_DEPS=0 ;;
         --firewall) OPEN_FIREWALL=yes ;;
         --no-firewall) OPEN_FIREWALL=no ;;
+        --update) UPDATE=1; INSTALL_DEPS=0; OPEN_FIREWALL=no ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $arg" >&2; usage; exit 1 ;;
     esac
 done
 
-say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
+if [ -t 1 ]; then
+    say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
+else
+    say() { printf '==> %s\n' "$*"; }
+fi
 
 install_deps() {
     if command -v dnf >/dev/null; then
@@ -99,12 +107,29 @@ from gi.repository import Adw
 assert (Adw.get_major_version(), Adw.get_minor_version()) >= (1, 4), "libadwaita 1.4 or newer is needed"
 PY
 
-say "Creating virtual environment in $VENV"
 mkdir -p "$APP_DIR"
-# system site packages so the distribution's PyGObject is used
-python3 -m venv --system-site-packages --clear "$VENV"
-"$VENV/bin/python" -m pip install --quiet --upgrade pip
-"$VENV/bin/python" -m pip install --quiet "$SRC[x11,bluetooth]"
+if [ "$UPDATE" = 1 ] && [ -x "$VENV/bin/python" ]; then
+    # keep the environment the running app uses, just upgrade the package
+    say "Updating GoveeHome in $VENV"
+    "$VENV/bin/python" -m pip install --quiet --upgrade "$SRC[x11,bluetooth]"
+else
+    say "Creating virtual environment in $VENV"
+    # system site packages so the distribution's PyGObject is used
+    python3 -m venv --system-site-packages --clear "$VENV"
+    "$VENV/bin/python" -m pip install --quiet --upgrade pip
+    "$VENV/bin/python" -m pip install --quiet "$SRC[x11,bluetooth]"
+fi
+
+# remember what is installed, the in-app updater compares against it
+COMMIT="${GOVEEHOME_COMMIT:-$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)}"
+"$VENV/bin/python" - "$APP_DIR/installed.json" "$COMMIT" "${GOVEEHOME_SOURCE:-$SRC}" "$PREFIX" <<'PY'
+import json, sys, time
+import goveehome
+path, commit, source, prefix = sys.argv[1:5]
+with open(path, "w") as f:
+    json.dump({"version": goveehome.__version__, "commit": commit or None, "source": source,
+               "prefix": prefix, "installed": time.strftime("%Y-%m-%dT%H:%M:%S")}, f, indent=2)
+PY
 
 say "Installing launchers, desktop entry and icon"
 mkdir -p "$PREFIX/bin" "$PREFIX/share/applications" "$PREFIX/share/metainfo" \
@@ -119,6 +144,11 @@ update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
 gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 
 check_firewall
+
+if [ "$UPDATE" = 1 ]; then
+    say "Updated to $("$VENV/bin/python" -c 'import goveehome; print(goveehome.__version__)')"
+    exit 0
+fi
 
 echo
 say "Done. Start GoveeHome from your app menu, or run: goveehome"

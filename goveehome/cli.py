@@ -183,6 +183,38 @@ def cmd_effect(args) -> int:
     return _run_show(args, "effects", effects.EffectSource, prepare)
 
 
+def cmd_update(args) -> int:
+    from goveehome import updater
+
+    current = updater.installed()
+    print(f"Installed: {current.version}" + (f" ({current.short_commit})" if current.commit else "")
+          + f", {current.mode}")
+    try:
+        info = updater.check(current)
+    except updater.UpdateError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(f"On GitHub: {info.version} ({info.commit[:7]})")
+    if not info.available and not args.force:
+        print("Already up to date.")
+        return 0
+    for line in info.changes:
+        print(f"  - {line}")
+    if args.check:
+        return 0
+    if not current.can_update:
+        print("This copy wasn't installed with install.sh; update it with your package manager.",
+              file=sys.stderr)
+        return 1
+    try:
+        updater.apply(current, info)
+    except updater.UpdateError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print("Done. Restart GoveeHome to use the new version.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="goveehome-cli", description="Control Govee lights from the terminal.")
     p.add_argument("--version", action="version", version=__version__)
@@ -193,6 +225,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="list lights").set_defaults(func=cmd_list)
+
+    s = sub.add_parser("update", help="update GoveeHome to the newest version on GitHub")
+    s.add_argument("--check", action="store_true", help="only show whether an update exists")
+    s.add_argument("--force", action="store_true", help="reinstall even when up to date")
+    s.set_defaults(func=cmd_update)
 
     for name, func, text in (("on", cmd_on, "turn on"), ("off", cmd_off, "turn off")):
         s = sub.add_parser(name, help=text)

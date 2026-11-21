@@ -32,6 +32,8 @@ Govee PC app.
 - Optional: a Govee API key adds lights without LAN control, your own light names, scenes
   and DIY scenes, single-segment colours and the lights' own microphone music modes
 - Optional: Bluetooth for lights without Wi-Fi
+- Updates itself from GitHub: the app tells you when there's a new version and installs it
+  with one click
 - A command line tool for scripts, keyboard shortcuts and running light shows as a service
 
 The Govee app's AI features (AI lighting bot, AI scene generation) are not part of this.
@@ -75,6 +77,7 @@ goveehome-cli music --mode pulse        # music sync
 goveehome-cli effect aurora --speed 0.5
 goveehome-cli effect gradient --color "#ff0080" --color2 "#00c0ff"
 goveehome-cli effect list
+goveehome-cli update                    # install the newest version from GitHub
 ```
 
 Targets can be a name (or part of one), an IP address, a device id, or `all`.
@@ -123,6 +126,7 @@ goveehome/
               picking, gamma, smoothing), letterbox.py, music.py, effects.py
   manager.py  device list and groups, picks LAN / Bluetooth / cloud per light
   power.py    follows sleep / shutdown through logind
+  updater.py  checks GitHub and installs new versions
   ui/         GTK 4 + libadwaita interface
   cli.py      goveehome-cli
 ```

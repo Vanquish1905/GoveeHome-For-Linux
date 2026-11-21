@@ -57,10 +57,16 @@ DEFAULTS: dict = {
         "autostart": False,
         "resume_show": False,     # start the last light show again on launch
         "last_show": "",
+        "resume_once": "",        # light show to start again after a restart for an update
     },
     "power": {
         "off_on_sleep": False,
         "on_on_wake": False,
+    },
+    "updates": {
+        "auto_check": True,       # look for a new version on GitHub once a day
+        "last_check": 0,
+        "skipped": "",            # commit the user chose to skip
     },
     "portal_restore_token": "",
 }

@@ -79,6 +79,8 @@ class Application(Adw.Application):
         self._timers: dict[str, tuple[int, float]] = {}
         self._asleep: dict = {}
         self.power = None
+        self.restart_requested = False
+        self.update_info = None
 
         from goveehome.sync.effects import EffectSource
         from goveehome.sync.engine import LightEngine, ScreenSource
@@ -112,17 +114,25 @@ class Application(Adw.Application):
         self._action("preferences", self._preferences, ["<Primary>comma"])
         self._action("add-host", self._add_host)
         self._action("about", self._about)
+        self._action("check-updates", lambda *_: self.show_updates())
         self._action("show-window", lambda *_: self.do_activate())
         self._action("quit", lambda *_: self._quit(), ["<Primary>q"])
         self.set_accels_for_action("win.show-help-overlay", ["<Primary>question"])
         self.manager.start()
+
+        GLib.timeout_add_seconds(20, self._auto_check_updates)
 
         from goveehome.power import PowerWatcher
         self.power = PowerWatcher(self._on_sleep, self._on_wake)
         self.power.start()
 
         bg = self.config.section("background")
-        if bg.get("resume_show") and bg.get("last_show") in self.engines:
+        resume_once = bg.get("resume_once")
+        if resume_once:
+            self.config.set_in("background", "resume_once", "")
+        if resume_once in self.engines:
+            GLib.timeout_add_seconds(3, lambda: (self.start_show(resume_once), False)[1])
+        elif bg.get("resume_show") and bg.get("last_show") in self.engines:
             # give discovery a moment so the lights are known
             GLib.timeout_add_seconds(3, lambda: (self.start_show(bg["last_show"]), False)[1])
 
@@ -230,6 +240,52 @@ class Application(Adw.Application):
             "[Desktop Entry]\nType=Application\nName=GoveeHome\n"
             f"Exec={exe} --background\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
             "NoDisplay=true\n")
+
+    # updates ------------------------------------------------------------------
+    def show_updates(self, info=None):
+        from goveehome.ui.update_window import UpdateWindow
+        UpdateWindow(self, self._ensure_window(), info or self.update_info).present()
+
+    def _auto_check_updates(self):
+        import threading
+        import time
+
+        from goveehome import updater
+        updates = self.config.section("updates")
+        if not updates.get("auto_check", True) or time.time() - updates.get("last_check", 0) < 20 * 3600:
+            return GLib.SOURCE_REMOVE
+
+        def work():
+            try:
+                info = updater.check(updater.installed())
+            except updater.UpdateError:
+                return  # offline or rate limited; try again next start
+            GLib.idle_add(found, info)
+
+        def found(info):
+            self.config.set_in("updates", "last_check", time.time())
+            if info.available and info.commit != updates.get("skipped"):
+                self.update_info = info
+                if self.window:
+                    self.window.show_update_banner(info)
+            return GLib.SOURCE_REMOVE
+        threading.Thread(target=work, daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def skip_update(self):
+        if self.update_info:
+            self.config.set_in("updates", "skipped", self.update_info.commit)
+
+    def update_installed(self):
+        self.update_info = None
+        if self.window:
+            self.window.hide_update_banner()
+
+    def restart(self):
+        running = next((k for k, e in self.engines.items() if e.running), "")
+        self.config.set_in("background", "resume_once", running)
+        self.restart_requested = True
+        self._quit()
 
     # timers ------------------------------------------------------------------
     def set_timer(self, key: str, minutes: int, action) -> None:
@@ -341,7 +397,14 @@ def main() -> int:
     logging.basicConfig(level=logging.DEBUG if os.environ.get("GOVEEHOME_DEBUG") else logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")
     argv = [a for a in sys.argv if a != "--background"]
-    return Application(background="--background" in sys.argv).run(argv)
+    app = Application(background="--background" in sys.argv)
+    code = app.run(argv)
+    if app.restart_requested:
+        # the app has let go of its D-Bus name by now, so a new instance can start
+        from goveehome import updater
+        cmd = updater.launcher()
+        os.execv(cmd[0], cmd)
+    return code
 
 
 if __name__ == "__main__":

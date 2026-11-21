@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.1.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.2.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -380,6 +380,35 @@ The most common cause is libadwaita older than 1.4.
 
 ## 12. Updating
 
+### From inside the app (1.2.0 and newer)
+
+GoveeHome looks for a new version on GitHub once a day. When there is one, **Update
+available** shows up at the top of the sidebar. You can also check yourself: menu → **Check
+for Updates…**, or *Preferences → Updates → Check now*.
+
+The update window lists what changed. **Update** downloads the newest version from GitHub
+and installs it over the current one, then **Restart now** opens the new version; a light
+show that was running starts again by itself. Your settings are kept. Nothing needs root,
+so there's no password prompt.
+
+If an update needs new system packages, the update window says what failed. Run the manual
+update below once, which installs them.
+
+From a terminal the same works with:
+
+```bash
+goveehome-cli update
+```
+
+`goveehome-cli update --check` only shows whether there's something new.
+
+If you run GoveeHome straight from a git clone (`python3 -m goveehome`), the updater does a
+`git pull` instead. An RPM install is updated with `dnf`, not from inside the app.
+
+### By hand
+
+In the folder you cloned:
+
 ```bash
 cd GoveeHome-For-Linux
 ```
@@ -394,6 +423,45 @@ git pull
 
 Your settings are kept. Settings from 1.0 that changed meaning (screen sync smoothing,
 colour pick) are reset to the new defaults once.
+
+### Clean reinstall
+
+Removes the installed app first, keeps your settings and lights, then installs the newest
+version from scratch:
+
+```bash
+cd GoveeHome-For-Linux
+```
+
+```bash
+./uninstall.sh
+```
+
+```bash
+git pull
+```
+
+```bash
+./install.sh
+```
+
+Don't have the cloned folder any more? Clone it fresh and install from there:
+
+```bash
+git clone https://github.com/Vanquish1905/GoveeHome-For-Linux.git
+```
+
+```bash
+cd GoveeHome-For-Linux
+```
+
+```bash
+./uninstall.sh
+```
+
+```bash
+./install.sh
+```
 
 ## 13. Uninstall
 

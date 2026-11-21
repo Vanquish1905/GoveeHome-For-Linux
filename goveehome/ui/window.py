@@ -71,6 +71,17 @@ class GroupRow(SidebarRow):
         return (1, "" if self.group_id == ALL_LIGHTS else self.title.get_label().lower())
 
 
+class UpdateRow(SidebarRow):
+    section = -1
+
+    def __init__(self):
+        super().__init__("Update available", "", icon="software-update-available-symbolic")
+        self.lead.add_css_class("accent")
+
+    def sort_key(self):
+        return (-1, "")
+
+
 class NewGroupRow(SidebarRow):
     section = 1
 
@@ -168,6 +179,7 @@ class MainWindow(Adw.ApplicationWindow):
         menu.append_section(None, section)
         section = Gio.Menu()
         section.append("Keyboard Shortcuts", "win.show-help-overlay")
+        section.append("Check for Updates…", "app.check-updates")
         section.append(f"About {APP_NAME}", "app.about")
         section.append("Quit", "app.quit")
         menu.append_section(None, section)
@@ -189,6 +201,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.new_group_row = NewGroupRow()
         self.list.append(self.new_group_row)
+
+        self.update_row = UpdateRow()
+        self.update_row.set_visible(False)
+        self.list.append(self.update_row)
 
         self.empty_row = Gtk.ListBoxRow(activatable=False, selectable=False)
         self.empty_row.sort_key = lambda: (3, "")
@@ -274,6 +290,9 @@ class MainWindow(Adw.ApplicationWindow):
         elif isinstance(row, NewGroupRow):
             edit_group_dialog(self)
             return
+        elif isinstance(row, UpdateRow):
+            self.app.show_updates()
+            return
         elif isinstance(row, GroupRow):
             page = self._group_pages.get(row.group_id)
             if page is None:
@@ -355,6 +374,16 @@ class MainWindow(Adw.ApplicationWindow):
             return
         self._last_toast = (message, now)
         self.toasts.add_toast(Adw.Toast.new(message))
+
+    def show_update_banner(self, info) -> None:
+        self.update_row.subtitle.set_label(f"Version {info.version} is ready")
+        self.update_row.subtitle.set_visible(True)
+        self.update_row.set_visible(True)
+        self.list.invalidate_headers()
+
+    def hide_update_banner(self) -> None:
+        self.update_row.set_visible(False)
+        self.list.invalidate_headers()
 
     def forget_device(self, device: Device) -> None:
         self.manager.forget(device)

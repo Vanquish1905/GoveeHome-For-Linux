@@ -18,6 +18,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.manager = self.app.manager
 
         page = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
+        page.add(self._updates_group())
         page.add(self._background_group())
         page.add(self._power_group())
         page.add(self._cloud_group())
@@ -36,6 +37,24 @@ class PreferencesWindow(Adw.PreferencesWindow):
         row.connect("notify::active", changed)
         group.add(row)
         return row
+
+    def _updates_group(self):
+        from goveehome import updater
+        current = updater.installed()
+        group = Adw.PreferencesGroup(title="Updates")
+        how = {"installer": "installed with install.sh",
+               "checkout": "running from a git checkout",
+               "other": "installed by a package manager"}[current.mode]
+        version = f"{current.version}" + (f" ({current.short_commit})" if current.short_commit else "")
+        row = Adw.ActionRow(title=f"Version {version}", subtitle=how.capitalize())
+        btn = Gtk.Button(label="Check now", valign=Gtk.Align.CENTER)
+        btn.add_css_class("flat")
+        btn.connect("clicked", lambda *_: self.app.show_updates())
+        row.add_suffix(btn)
+        group.add(row)
+        self._switch(group, "updates", "auto_check", "Look for updates automatically",
+                     "Once a day, on GitHub")
+        return group
 
     def _background_group(self):
         group = Adw.PreferencesGroup(title="Running in the background")
