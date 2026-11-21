@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from goveehome.sync.effects import hsv, palette
+from goveehome.sync import palettes
 from goveehome.sync.engine import Source, SourceError
 
 log = logging.getLogger(__name__)
@@ -23,19 +23,16 @@ RATE = 44100
 
 MODES = {
     "spectrum": "Spectrum",
+    "mirror": "Mirrored spectrum",
     "energy": "Energy",
     "pulse": "Beat pulse",
+    "bass": "Bass glow",
     "rolling": "Rolling",
 }
 
-PALETTES: dict[str, Callable[[np.ndarray], np.ndarray]] = {
-    "rainbow": lambda u: hsv(u, 1.0, 1.0),
-    "warm": lambda u: palette([(255, 0, 0), (255, 90, 0), (255, 200, 0), (255, 0, 90)], u),
-    "cool": lambda u: palette([(0, 80, 255), (0, 220, 255), (120, 0, 255), (0, 255, 160)], u),
-    "neon": lambda u: palette([(255, 0, 200), (0, 255, 240), (180, 255, 0), (120, 0, 255)], u),
-    "fire": lambda u: palette([(255, 20, 0), (255, 120, 0), (255, 200, 40)], u),
-}
-PALETTE_LABELS = {"rainbow": "Rainbow", "warm": "Warm", "cool": "Cool", "neon": "Neon", "fire": "Fire"}
+# kept for the CLI: palette ids and their names
+PALETTES = {pid: label for pid, (label, _) in palettes.PALETTES.items()}
+PALETTE_LABELS = PALETTES
 
 
 class AudioCapture:
@@ -204,7 +201,7 @@ class MusicSource(Source):
         self.analysis = a
         dt = min(0.2, now - self._last) if self._last else 0.0
         self._last = now
-        pal = PALETTES.get(s.get("palette", "rainbow"), PALETTES["rainbow"])
+        pal = palettes.palette_fn(s.get("palette", "rainbow"), s.get("colors"))
         mode = s.get("mode", "spectrum")
         brightness = float(s.get("brightness", 1.0))
 
@@ -232,6 +229,15 @@ class MusicSource(Source):
                     col = pal(x * 0.85 + self._phase * 0.2) * v[:, None]
                 else:
                     col = pal(np.array([a.centroid * 0.85 + self._phase * 0.2])) * a.level
+            elif mode == "mirror":
+                # bass in the middle, treble at both ends
+                d = np.abs(x - 0.5) * 2 if len(x) > 1 else np.array([0.0])
+                v = np.interp(d * (nb - 1), np.arange(nb), a.bands)
+                col = pal(d * 0.85 + self._phase * 0.2) * v[:, None] if len(x) > 1 else \
+                    pal(np.array([self._phase])) * a.level
+            elif mode == "bass":
+                bass = float(np.clip(a.bands[:4].mean() * 1.3, 0, 1))
+                col = pal(self._phase * 0.5 + x * 0.15) * (0.06 + 0.94 * bass)
             elif mode == "energy":
                 col = pal(self._phase + x * 0.3) * (0.12 + 0.88 * a.level)
             elif mode == "pulse":

@@ -89,7 +89,7 @@ class LightRow(Adw.ActionRow):
         settings = self.page.manager.stream_settings(d)
         self.set_title(GLib.markup_escape_text(d.display_name))
         if not d.can_stream:
-            self.set_subtitle("Cloud only, too slow for light shows")
+            self.set_subtitle("Needs LAN Control (Govee app → light settings) or Bluetooth")
             self.set_sensitive(False)
             self._set_switch(False)
             return
@@ -112,6 +112,7 @@ class LightRow(Adw.ActionRow):
             return
         self.page.app.config.update_device_settings(self.device.id, **{self.page.kind: switch.get_active()})
         self.page.engine.reload()
+        self.page._update_count()
 
 
 class ShowPage(Adw.NavigationPage):
@@ -143,8 +144,8 @@ class ShowPage(Adw.NavigationPage):
         self.set_child(view)
 
         self.page.add(self._build_preview())
-        self.build_top()
         self.page.add(self._build_lights())
+        self.build_top()
         self.build_bottom()
         if self.engine.running:
             self.on_state(True, None)
@@ -174,6 +175,17 @@ class ShowPage(Adw.NavigationPage):
 
     def _build_lights(self):
         self.lights_group = Adw.PreferencesGroup(title="Lights", description=self.lights_text or None)
+        pick = Gtk.Box(spacing=6)
+        for label, value in (("All", True), ("None", False)):
+            btn = Gtk.Button(label=label)
+            btn.add_css_class("flat")
+            btn.connect("clicked", lambda _b, v=value: self.select_lights(None if v else []))
+            pick.append(btn)
+        self.group_menu = Gtk.MenuButton(label="Group", tooltip_text="Use the lights of a group")
+        self.group_menu.add_css_class("flat")
+        self.group_menu.set_create_popup_func(self._fill_group_menu)
+        pick.append(self.group_menu)
+        self.lights_group.set_header_suffix(pick)
         self.no_lights = Adw.ActionRow(title="No lights found yet")
         self.no_lights.add_css_class("dim-label")
         self.lights_group.add(self.no_lights)
@@ -205,6 +217,52 @@ class ShowPage(Adw.NavigationPage):
         group.add(row)
         return row
 
+    # choosing lights -----------------------------------------------------------
+    def select_lights(self, ids: list[str] | None) -> None:
+        """ids=None turns on every light that can take part."""
+        for device in self.manager.list():
+            if not device.can_stream:
+                continue
+            on = ids is None or device.id in ids
+            self.config.update_device_settings(device.id, save=False, **{self.kind: on})
+        self.config.save()
+        for row in self._rows.values():
+            row.update()
+        self.engine.reload()
+        self._update_count()
+
+    def _fill_group_menu(self, button):
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_top=6, margin_bottom=6,
+                      margin_start=6, margin_end=6)
+        groups = self.manager.groups()
+        if not groups:
+            hint = Gtk.Label(label="No groups yet. Create one with\n“New group…” in the sidebar.",
+                             margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+            hint.add_css_class("dim-label")
+            box.append(hint)
+        for group in groups:
+            item = Gtk.Button(label=group["name"])
+            item.add_css_class("flat")
+            item.get_child().set_xalign(0)
+
+            def use(_b, g=group):
+                popover.popdown()
+                self.select_lights(list(g["members"]))
+            item.connect("clicked", use)
+            box.append(item)
+        popover.set_child(box)
+        button.set_popover(popover)
+
+    def _update_count(self):
+        usable = [d for d in self.manager.list() if d.can_stream]
+        chosen = [d for d in usable if self.manager.stream_settings(d).get(self.kind, True)]
+        text = self.lights_text or ""
+        if usable:
+            count = f"{len(chosen)} of {len(usable)} lights take part."
+            text = f"{count} {text}".strip()
+        self.lights_group.set_description(text or None)
+
     # device list --------------------------------------------------------------
     def add_device(self, device: Device):
         if device.id in self._rows:
@@ -214,6 +272,7 @@ class ShowPage(Adw.NavigationPage):
         self._rows[device.id] = row
         self.lights_group.add(row)
         self.no_lights.set_visible(False)
+        self._update_count()
 
     def remove_device(self, device: Device):
         row = self._rows.pop(device.id, None)
@@ -224,6 +283,7 @@ class ShowPage(Adw.NavigationPage):
     def device_settings_changed(self, device: Device):
         if device.id in self._rows:
             self._rows[device.id].update()
+        self._update_count()
 
     # engine --------------------------------------------------------------------
     def on_toggle(self, *_):
@@ -354,6 +414,12 @@ class ScreenSyncPage(ShowPage):
             group.add(forget)
         self.page.add(group)
 
+    def status_text(self, preview):
+        text = f"Running · {preview.backend} · {preview.fps:.0f} updates/s"
+        if preview.delay is not None:
+            text += f" · {preview.delay * 1000:.0f} ms from capture to light"
+        return text
+
     def on_toggle(self, *_):
         if not self.engine.running:
             super().on_toggle()
@@ -366,45 +432,26 @@ class ScreenSyncPage(ShowPage):
         self.window.toast("The screen share dialog will ask again next time")
 
 
-class MusicPage(ShowPage):
-    kind = "music"
-    page_title = "Music"
-    placeholder = "Play something and press Start. The lights follow what your speakers play, no microphone needed."
-    preview_ratio = 16 / 6
-    preview_height = 180
+class GradientCard(Gtk.ToggleButton):
+    """A card with a colour strip and a name; used for effects and palettes."""
 
-    def build_top(self):
-        group = Adw.PreferencesGroup(title="Style")
-        self.combo(group, "music", "Mode", "mode", music.MODES,
-                   "Spectrum spreads the frequencies along the light")
-        self.combo(group, "music", "Colours", "palette", music.PALETTE_LABELS)
-        self.slider(group, "music", "Sensitivity", "sensitivity", 0.3, 2.5, 0.05, lambda v: f"{v * 100:.0f} %")
-        self.slider(group, "music", "Brightness", "brightness", 0.1, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
-        self.page.add(group)
-
-    def status_text(self, preview):
-        return f"Listening to {preview.backend.lower()} · {preview.fps:.0f} updates/s"
-
-
-class EffectCard(Gtk.ToggleButton):
-    def __init__(self, page: "EffectsPage", effect: fx.Effect):
+    def __init__(self, label: str, colors_fn):
         super().__init__()
-        self.page = page
-        self.effect = effect
+        self.colors_fn = colors_fn
         self.add_css_class("effect-card")
         self.add_css_class("flat")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.swatch = Gtk.DrawingArea()
-        self.swatch.set_content_height(44)
+        self.swatch.set_content_height(40)
         self.swatch.set_content_width(96)
         self.swatch.set_draw_func(self._draw)
         box.append(self.swatch)
-        box.append(Gtk.Label(label=effect.label, ellipsize=3))
+        box.append(Gtk.Label(label=label, ellipsize=3))
         self.set_child(box)
 
     def _draw(self, _area, cr, width, height):
         import cairo
-        colors = fx.card_colors(self.effect, self.page.params())
+        colors = self.colors_fn() or [(128, 128, 128)]
         grad = cairo.LinearGradient(0, 0, width, 0)
         for i, c in enumerate(colors):
             grad.add_color_stop_rgb(i / max(1, len(colors) - 1), *(v / 255 for v in c))
@@ -419,6 +466,109 @@ class EffectCard(Gtk.ToggleButton):
         cr.fill()
 
 
+def _card_flow():
+    return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                       max_children_per_line=6, min_children_per_line=2,
+                       column_spacing=6, row_spacing=6)
+
+
+def _hex(rgb) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+class MusicPage(ShowPage):
+    kind = "music"
+    page_title = "Music"
+    placeholder = "Play something and press Start. The lights follow what your speakers play, no microphone needed."
+    preview_ratio = 16 / 6
+    preview_height = 180
+    MAX_COLORS = 6
+
+    def build_top(self):
+        group = Adw.PreferencesGroup(title="Style")
+        self.combo(group, "music", "Mode", "mode", music.MODES)
+        self.slider(group, "music", "Sensitivity", "sensitivity", 0.3, 2.5, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.slider(group, "music", "Brightness", "brightness", 0.1, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.page.add(group)
+
+        from goveehome.sync import palettes
+        colors = Adw.PreferencesGroup(title="Colours")
+        flow = _card_flow()
+        self.palette_cards: dict[str, GradientCard] = {}
+        current = self.config.section("music").get("palette", "rainbow")
+        for pid, (label, _hexes) in palettes.PALETTES.items():
+            card = GradientCard(label, lambda pid=pid: palettes.preview_colors(
+                pid, self.config.section("music").get("colors")))
+            card.set_active(pid == current)
+            card.connect("clicked", self._pick_palette, pid)
+            self.palette_cards[pid] = card
+            flow.append(card)
+        colors.add(flow)
+        self.page.add(colors)
+
+        own = Adw.PreferencesGroup(title="Your colours",
+                                   description="Used by the “Your colours” palette. Changing one switches to it.")
+        self.custom_box = Gtk.Box(spacing=8, margin_top=8, margin_bottom=8, margin_start=12, margin_end=12)
+        row = Adw.PreferencesRow(activatable=False, title="Your colours")
+        row.set_child(self.custom_box)
+        own.add(row)
+        self.page.add(own)
+        self._build_custom_buttons()
+
+    def _build_custom_buttons(self):
+        from goveehome.colors import parse_color
+        child = self.custom_box.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.custom_box.remove(child)
+            child = nxt
+        hexes = list(self.config.section("music").get("colors") or [])
+        for i, h in enumerate(hexes):
+            button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
+            try:
+                button.set_rgba(rgba_from_rgb(parse_color(h)))
+            except ValueError:
+                pass
+            button.connect("notify::rgba", self._custom_changed, i)
+            self.custom_box.append(button)
+        spacer = Gtk.Box(hexpand=True)
+        self.custom_box.append(spacer)
+        remove = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Remove the last colour",
+                            valign=Gtk.Align.CENTER, sensitive=len(hexes) > 1)
+        remove.add_css_class("flat")
+        remove.connect("clicked", lambda *_: self._set_custom(hexes[:-1]))
+        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a colour",
+                         valign=Gtk.Align.CENTER, sensitive=len(hexes) < self.MAX_COLORS)
+        add.add_css_class("flat")
+        add.connect("clicked", lambda *_: self._set_custom(hexes + ["#ffffff"]))
+        self.custom_box.append(remove)
+        self.custom_box.append(add)
+
+    def _set_custom(self, hexes):
+        self.config.set_in("music", "colors", hexes)
+        self._use_palette("custom")
+        self._build_custom_buttons()
+
+    def _custom_changed(self, button, _pspec, index):
+        hexes = list(self.config.section("music").get("colors") or [])
+        if index < len(hexes):
+            hexes[index] = _hex(rgb_from_rgba(button.get_rgba()))
+            self.config.set_in("music", "colors", hexes)
+            self._use_palette("custom")
+
+    def _pick_palette(self, card, pid):
+        self._use_palette(pid)
+
+    def _use_palette(self, pid):
+        self.config.set_in("music", "palette", pid)
+        for key, card in self.palette_cards.items():
+            card.set_active(key == pid)
+            card.swatch.queue_draw()
+
+    def status_text(self, preview):
+        return f"Listening to {preview.backend.lower()} · {preview.fps:.0f} updates/s"
+
+
 class EffectsPage(ShowPage):
     kind = "effects"
     page_title = "Effects"
@@ -427,62 +577,67 @@ class EffectsPage(ShowPage):
     preview_height = 90
 
     def params(self) -> fx.Params:
-        from goveehome.colors import parse_color
-        s = self.config.section("effects")
-        return fx.Params(speed=float(s["speed"]), color_a=parse_color(s["color_a"]),
-                         color_b=parse_color(s["color_b"]))
+        return fx.params_from(self.config.section("effects"))
 
     def build_top(self):
-        group = Adw.PreferencesGroup(title="Effect")
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                           max_children_per_line=6, min_children_per_line=2,
-                           column_spacing=6, row_spacing=6)
-        self.cards: list[EffectCard] = []
-        current = self.config.section("effects")["effect"]
-        for effect in fx.EFFECTS.values():
-            card = EffectCard(self, effect)
-            card.set_active(effect.id == current)
-            card.connect("clicked", self._pick)
-            self.cards.append(card)
-            flow.append(card)
-        group.add(flow)
-        self.page.add(group)
-
-        opts = Adw.PreferencesGroup(title="Settings")
+        from goveehome.colors import parse_color
+        section = self.config.section("effects")
+        opts = Adw.PreferencesGroup(title="Options")
         self.slider(opts, "effects", "Speed", "speed", 0.1, 4.0, 0.05, lambda v: f"{v:.2f}×")
         self.slider(opts, "effects", "Brightness", "brightness", 0.05, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.size_row = self.slider(opts, "effects", "Size", "size", 0.05, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        reverse = Adw.SwitchRow(title="Reverse direction", active=bool(section.get("reverse", False)))
+        reverse.connect("notify::active", lambda r, _p: self.config.set_in("effects", "reverse", r.get_active()))
+        opts.add(reverse)
         self.color_rows = []
-        for key, title in (("color_a", "First colour"), ("color_b", "Second colour")):
-            from goveehome.colors import parse_color
+        for key, title in (("color_a", "First colour"), ("color_b", "Second colour"), ("color_c", "Third colour")):
             row = Adw.ActionRow(title=title)
             button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
-            button.set_rgba(rgba_from_rgb(parse_color(self.config.section("effects")[key])))
+            try:
+                button.set_rgba(rgba_from_rgb(parse_color(section.get(key) or "#ffffff")))
+            except ValueError:
+                pass
             button.connect("notify::rgba", self._color_changed, key)
             row.add_suffix(button)
             row.set_activatable_widget(button)
             opts.add(row)
             self.color_rows.append(row)
         self.page.add(opts)
-        self._update_color_rows()
+
+        self.cards: list[GradientCard] = []
+        current = section["effect"]
+        for category in fx.CATEGORIES:
+            group = Adw.PreferencesGroup(title=category)
+            flow = _card_flow()
+            for effect in (e for e in fx.EFFECTS.values() if e.category == category):
+                card = GradientCard(effect.label, lambda e=effect: fx.card_colors(e, self.params()))
+                card.effect = effect
+                card.set_active(effect.id == current)
+                card.connect("clicked", self._pick)
+                self.cards.append(card)
+                flow.append(card)
+            group.add(flow)
+            self.page.add(group)
+        self._update_option_rows()
 
     def _color_changed(self, button, _pspec, key):
-        rgb = rgb_from_rgba(button.get_rgba())
-        self.config.set_in("effects", key, "#{:02x}{:02x}{:02x}".format(*rgb))
+        self.config.set_in("effects", key, _hex(rgb_from_rgba(button.get_rgba())))
         for card in self.cards:
             card.swatch.queue_draw()
 
-    def _update_color_rows(self):
+    def _update_option_rows(self):
         effect = fx.EFFECTS.get(self.config.section("effects")["effect"], fx.EFFECTS["rainbow"])
         for i, row in enumerate(self.color_rows):
             row.set_sensitive(effect.uses_colors > i)
+        self.size_row.set_sensitive(effect.uses_size)
 
-    def _pick(self, card: EffectCard):
+    def _pick(self, card):
         for other in self.cards:
             if other is not card:
                 other.set_active(False)
         card.set_active(True)
         self.config.set_in("effects", "effect", card.effect.id)
-        self._update_color_rows()
+        self._update_option_rows()
         if not self.engine.running:
             self.on_toggle()
 

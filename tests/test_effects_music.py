@@ -107,3 +107,49 @@ def test_music_source_modes(tmp_path, mode):
     assert out["a"].shape == (8, 3) and out["b"].shape == (1, 3)
     assert np.isfinite(out["a"]).all()
     assert src.preview().shape == (90, 160, 3)
+
+
+def test_palettes_all_render():
+    from goveehome.sync import palettes
+    u = np.linspace(0, 1, 9)
+    for pid in palettes.PALETTES:
+        c = palettes.palette_fn(pid, ["#ff0000"])(u)
+        assert c.shape == (9, 3) and np.isfinite(c).all()
+
+
+def test_custom_palette_uses_your_colours():
+    from goveehome.sync import palettes
+    one = palettes.palette_fn("custom", ["#00ff00"])(np.linspace(0, 1, 5))
+    assert np.allclose(one, (0, 255, 0))
+    two = palettes.colors_of("custom", ["#ff0000", "nonsense", "#0000ff"])
+    assert two == [(255, 0, 0), (0, 0, 255)]
+    assert palettes.colors_of("custom", []) == palettes.colors_of("custom", palettes.DEFAULT_CUSTOM)
+
+
+def test_music_custom_colours_reach_the_lights(tmp_path):
+    config = Config(tmp_path / "c.json")
+    config.section("music").update(mode="energy", palette="custom", colors=["#00ff00"])
+    src = music.MusicSource(config, audio_factory=FakeAudio)
+    src.open()
+    t = [Target(Device("a"), {}, [(0, 0, 1, 1)] * 4, np.linspace(0, 1, 4), Smoother())]
+    out = None
+    for i in range(20):
+        out = src.render(t, i / 40)
+    assert out["a"][:, 0].max() < 1 and out["a"][:, 2].max() < 1 and out["a"][:, 1].max() > 10
+
+
+def test_effect_options():
+    p = effects.Params(color_a=(255, 0, 0), reverse=True)
+    x = np.linspace(0, 1, 20)
+    fwd = effects.render("gradient", x, 1.0, effects.Params(color_a=(255, 0, 0)))
+    rev = effects.render("gradient", x, 1.0, p)
+    assert np.allclose(fwd, rev[::-1])
+    assert set(e.category for e in effects.EFFECTS.values()) == set(effects.CATEGORIES)
+    assert len(effects.EFFECTS) >= 35
+
+
+def test_sunrise_gets_brighter():
+    x = np.linspace(0, 1, 5)
+    early = effects.render("sunrise", x, 10, effects.Params(speed=1.0)).mean()
+    late = effects.render("sunrise", x, 500, effects.Params(speed=1.0)).mean()
+    assert late > early * 5

@@ -38,6 +38,7 @@ DEFAULTS: dict = {
     "music": {
         "mode": "spectrum",
         "palette": "rainbow",
+        "colors": ["#ff0050", "#00b4ff", "#ffd200"],   # for the "custom" palette
         "sensitivity": 1.0,
         "brightness": 1.0,
         "fps": 40,
@@ -48,6 +49,9 @@ DEFAULTS: dict = {
         "brightness": 1.0,
         "color_a": "#ff5a00",
         "color_b": "#0050ff",
+        "color_c": "#ff008c",
+        "size": 0.3,              # width of moving parts (meteor, scanner, waves)
+        "reverse": False,
         "fps": 30,
     },
     "groups": [],                 # [{"id": ..., "name": ..., "members": [device ids]}]

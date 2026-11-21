@@ -154,6 +154,13 @@ def cmd_music(args) -> int:
             config.section("music")["mode"] = args.mode
         if args.palette:
             config.section("music")["palette"] = args.palette
+        if args.colors:
+            try:
+                hexes = ["#{:02x}{:02x}{:02x}".format(*parse_color(c)) for c in args.colors.split(";")]
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            config.section("music")["colors"] = hexes
+            config.section("music")["palette"] = "custom"
     return _run_show(args, "music", MusicSource, prepare)
 
 
@@ -161,8 +168,11 @@ def cmd_effect(args) -> int:
     from goveehome.sync import effects
 
     if args.name == "list":
-        for e in effects.EFFECTS.values():
-            print(f"{e.id:<10} {e.label}")
+        for category in effects.CATEGORIES:
+            print(f"{category}:")
+            for e in effects.EFFECTS.values():
+                if e.category == category:
+                    print(f"  {e.id:<14} {e.label}")
         return 0
     if args.name not in effects.EFFECTS:
         raise SystemExit(f"Unknown effect {args.name!r}. Run 'goveehome-cli effect list'.")
@@ -174,7 +184,11 @@ def cmd_effect(args) -> int:
             section["speed"] = args.speed
         if args.brightness is not None:
             section["brightness"] = max(0.0, min(1.0, args.brightness / 100))
-        for key, value in (("color_a", args.color), ("color_b", args.color2)):
+        if args.size is not None:
+            section["size"] = max(0.05, min(1.0, args.size / 100))
+        if args.reverse:
+            section["reverse"] = True
+        for key, value in (("color_a", args.color), ("color_b", args.color2), ("color_c", args.color3)):
             if value:
                 try:
                     section[key] = "#{:02x}{:02x}{:02x}".format(*parse_color(value))
@@ -262,6 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("targets", nargs="*", help="lights to use (default: all with music enabled in the app)")
     s.add_argument("--mode", choices=list(MUSIC_MODES))
     s.add_argument("--palette", choices=list(PALETTES))
+    s.add_argument("--colors", metavar="'#ff0000;#00ff00;...'",
+                   help="your own colours, separated by ';' (uses the custom palette)")
     s.set_defaults(func=cmd_music)
 
     s = sub.add_parser("effect", help="run a built-in effect ('effect list' shows them)")
@@ -269,8 +285,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("targets", nargs="*", help="lights to use (default: all with effects enabled in the app)")
     s.add_argument("--speed", type=float)
     s.add_argument("--brightness", type=int, metavar="PERCENT")
-    s.add_argument("--color", help="first colour for gradient / breathe")
-    s.add_argument("--color2", help="second colour for gradient")
+    s.add_argument("--color", help="first colour (effects that use your colours)")
+    s.add_argument("--color2", help="second colour")
+    s.add_argument("--color3", help="third colour")
+    s.add_argument("--size", type=int, metavar="PERCENT", help="size of moving parts")
+    s.add_argument("--reverse", action="store_true", help="run the other way")
     s.set_defaults(func=cmd_effect)
     return p
 
