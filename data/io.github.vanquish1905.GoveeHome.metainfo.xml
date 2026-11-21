@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.vanquish1905.GoveeHome</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>EPL-2.0</project_license>
+  <name>GoveeHome</name>
+  <summary>Control Govee lights and sync them with your screen</summary>
+  <developer id="io.github.vanquish1905">
+    <name>Colin</name>
+  </developer>
+  <description>
+    <p>
+      A desktop app for Govee LED strips, TV backlights, lamps and bulbs. Lights on your
+      network are found automatically and controlled directly over the LAN, without the
+      cloud.
+    </p>
+    <ul>
+      <li>Power, brightness, colour and white temperature</li>
+      <li>Screen sync: lights follow the colours on your screen, per segment on DreamView capable lights</li>
+      <li>Works on Wayland (GNOME, KDE Plasma) and X11</li>
+      <li>Optional Govee cloud API key for lights without LAN control and for scenes</li>
+      <li>Optional Bluetooth support</li>
+    </ul>
+    <p>This is an independent project and is not affiliated with Govee.</p>
+  </description>
+  <launchable type="desktop-id">io.github.vanquish1905.GoveeHome.desktop</launchable>
+  <url type="homepage">https://github.com/Vanquish1905/GoveeHome-For-Linux</url>
+  <url type="bugtracker">https://github.com/Vanquish1905/GoveeHome-For-Linux/issues</url>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="1.0.0" date="2026-11-21"/>
+  </releases>
+</component>

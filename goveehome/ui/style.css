@@ -1,0 +1,13 @@
+/* Kept small on purpose: everything else comes from libadwaita. */
+
+button.swatch {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 2px;
+  border-radius: 999px;
+}
+
+.preview {
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.08);
+}
