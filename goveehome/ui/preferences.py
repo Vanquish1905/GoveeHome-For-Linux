@@ -18,10 +18,40 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.manager = self.app.manager
 
         page = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
+        page.add(self._background_group())
+        page.add(self._power_group())
         page.add(self._cloud_group())
         page.add(self._lan_group())
         page.add(self._ble_group())
         self.add(page)
+
+    def _switch(self, group, section, key, title, subtitle=None, on_change=None):
+        row = Adw.SwitchRow(title=title, subtitle=subtitle,
+                            active=bool(self.config.section(section).get(key)))
+
+        def changed(r, _p):
+            self.config.set_in(section, key, r.get_active())
+            if on_change:
+                on_change(r.get_active())
+        row.connect("notify::active", changed)
+        group.add(row)
+        return row
+
+    def _background_group(self):
+        group = Adw.PreferencesGroup(title="Running in the background")
+        self._switch(group, "background", "keep_running", "Keep light shows running when the window is closed",
+                     "Open GoveeHome again to get the window back")
+        self._switch(group, "background", "autostart", "Start at login",
+                     "Starts without a window", on_change=self.app.set_autostart)
+        self._switch(group, "background", "resume_show", "Continue the last light show on start")
+        return group
+
+    def _power_group(self):
+        group = Adw.PreferencesGroup(title="Follow the computer")
+        self._switch(group, "power", "off_on_sleep", "Turn lights off when the computer sleeps or shuts down")
+        self._switch(group, "power", "on_on_wake", "Turn them back on when it wakes up",
+                     "Also resumes a light show that was running")
+        return group
 
     def _cloud_group(self):
         group = Adw.PreferencesGroup(

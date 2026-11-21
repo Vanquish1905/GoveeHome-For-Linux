@@ -141,3 +141,147 @@ class Debouncer:
         if value is not None:
             self.fn(value)
         return GLib.SOURCE_REMOVE
+
+
+PALETTE = [
+    ("Warm white", (255, 180, 107)),
+    ("White", (255, 255, 255)),
+    ("Red", (255, 0, 0)),
+    ("Orange", (255, 110, 0)),
+    ("Amber", (255, 160, 20)),
+    ("Yellow", (255, 220, 0)),
+    ("Green", (0, 255, 40)),
+    ("Teal", (0, 255, 170)),
+    ("Cyan", (0, 230, 255)),
+    ("Blue", (0, 60, 255)),
+    ("Indigo", (80, 0, 255)),
+    ("Violet", (170, 0, 255)),
+    ("Magenta", (255, 0, 200)),
+    ("Pink", (255, 60, 120)),
+]
+
+
+def rgba_from_rgb(rgb):
+    from gi.repository import Gdk
+    c = Gdk.RGBA()
+    c.red, c.green, c.blue, c.alpha = rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, 1.0
+    return c
+
+
+def rgb_from_rgba(c) -> RGB:
+    return round(c.red * 255), round(c.green * 255), round(c.blue * 255)
+
+
+def _flow(min_per_line=5):
+    return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                       max_children_per_line=14, min_children_per_line=min_per_line,
+                       column_spacing=4, row_spacing=4,
+                       margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+
+
+class ColorPanel:
+    """Preset swatches, saved favourites and a custom colour picker.
+
+    Used by lights, groups and the segment painter. `on_pick(rgb)` is called
+    for every choice; favourites are shared app wide.
+    """
+
+    def __init__(self, app, on_pick, title: str = "Colour", description: str | None = None,
+                 first_row: Gtk.Widget | None = None):
+        self.app = app
+        self.on_pick = on_pick
+        self._updating = False
+        self.group = Adw.PreferencesGroup(title=title, description=description)
+        if first_row is not None:
+            self.group.add(first_row)
+
+        presets = _flow()
+        self.swatches = []
+        for name, rgb in PALETTE:
+            sw = Swatch(name, rgb, self._pick)
+            self.swatches.append(sw)
+            presets.append(sw)
+        row = Adw.PreferencesRow(activatable=False, title="Preset colours")
+        row.set_child(presets)
+        self.group.add(row)
+
+        fav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.favorites = _flow()
+        fav_box.append(self.favorites)
+        self.fav_hint = Gtk.Label(label="Saved colours show up here. Right-click one to remove it.",
+                                  xalign=0, wrap=True, margin_start=12, margin_end=12, margin_bottom=10)
+        self.fav_hint.add_css_class("dim-label")
+        self.fav_hint.add_css_class("caption")
+        fav_box.append(self.fav_hint)
+        fav_row = Adw.PreferencesRow(activatable=False, title="Saved colours")
+        fav_row.set_child(fav_box)
+        self.group.add(fav_row)
+
+        custom = Adw.ActionRow(title="Custom colour")
+        self.button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False),
+                                            valign=Gtk.Align.CENTER)
+        self.button.connect("notify::rgba", self._on_custom)
+        self.hex_label = Gtk.Label()
+        self.hex_label.add_css_class("dim-label")
+        self.hex_label.add_css_class("monospace")
+        save = Gtk.Button(icon_name="list-add-symbolic", valign=Gtk.Align.CENTER,
+                          tooltip_text="Save this colour")
+        save.add_css_class("flat")
+        save.connect("clicked", self._save_favorite)
+        custom.add_suffix(self.hex_label)
+        custom.add_suffix(self.button)
+        custom.add_suffix(save)
+        custom.set_activatable_widget(self.button)
+        self.group.add(custom)
+        self.reload_favorites()
+
+    def _pick(self, rgb):
+        self.on_pick(tuple(rgb))
+
+    def _on_custom(self, button, _pspec):
+        rgb = rgb_from_rgba(button.get_rgba())
+        self.hex_label.set_label("#{:02x}{:02x}{:02x}".format(*rgb))
+        if not self._updating:
+            self.on_pick(rgb)
+
+    def _save_favorite(self, *_):
+        rgb = rgb_from_rgba(self.button.get_rgba())
+        hex_ = "#{:02x}{:02x}{:02x}".format(*rgb)
+        favs = list(self.app.config.get("favorite_colors") or [])
+        if hex_ not in favs:
+            favs.append(hex_)
+            self.app.config.set("favorite_colors", favs[-28:])
+        self.reload_favorites()
+
+    def _remove_favorite(self, hex_):
+        favs = [f for f in self.app.config.get("favorite_colors") or [] if f != hex_]
+        self.app.config.set("favorite_colors", favs)
+        self.reload_favorites()
+
+    def reload_favorites(self):
+        from goveehome.colors import parse_color
+        child = self.favorites.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.favorites.remove(child)
+            child = nxt
+        favs = self.app.config.get("favorite_colors") or []
+        for hex_ in favs:
+            try:
+                rgb = parse_color(hex_)
+            except ValueError:
+                continue
+            sw = Swatch(hex_, rgb, self._pick)
+            click = Gtk.GestureClick(button=3)
+            click.connect("released", lambda *_a, h=hex_: self._remove_favorite(h))
+            sw.add_controller(click)
+            self.favorites.append(sw)
+        self.favorites.set_visible(bool(favs))
+
+    def set_current(self, rgb: RGB | None):
+        for sw in self.swatches:
+            sw.set_selected(rgb is not None and sw.rgb == tuple(rgb))
+        if rgb:
+            self._updating = True
+            self.button.set_rgba(rgba_from_rgb(rgb))
+            self._updating = False

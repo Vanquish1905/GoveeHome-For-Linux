@@ -1,0 +1,490 @@
+"""Pages for the three light shows: screen sync, music and effects."""
+
+from __future__ import annotations
+
+import math
+
+from gi.repository import Adw, Gdk, GLib, Gtk
+
+from goveehome import capture
+from goveehome.capture import x11
+from goveehome.models import Device
+from goveehome.sync import colors as sc
+from goveehome.sync import effects as fx
+from goveehome.sync import music
+from goveehome.sync.engine import Preview
+from goveehome.sync.zones import LAYOUTS
+from goveehome.ui.widgets import ColorDot, Debouncer, SliderRow, rgb_from_rgba, rgba_from_rgb
+
+
+class PreviewArea(Gtk.Overlay):
+    """The captured / rendered frame with each light's zones drawn on top."""
+
+    def __init__(self, placeholder: str):
+        super().__init__()
+        self.add_css_class("preview")
+        self.set_overflow(Gtk.Overflow.HIDDEN)
+        self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.FILL, can_shrink=True)
+        self.set_child(self.picture)
+        self.zones = Gtk.DrawingArea()
+        self.zones.set_draw_func(self._draw)
+        self.add_overlay(self.zones)
+        self.placeholder = Gtk.Label(label=placeholder, wrap=True, justify=Gtk.Justification.CENTER)
+        self.placeholder.add_css_class("dim-label")
+        self.add_overlay(self.placeholder)
+        self._targets: dict = {}
+
+    def show_preview(self, preview: Preview | None) -> None:
+        if preview is None or preview.frame is None:
+            self.picture.set_paintable(None)
+            self._targets = {}
+            self.placeholder.set_visible(True)
+            self.zones.queue_draw()
+            return
+        frame = preview.frame
+        h, w = frame.shape[:2]
+        texture = Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8,
+                                        GLib.Bytes.new(frame.tobytes()), w * 3)
+        self.picture.set_paintable(texture)
+        self.placeholder.set_visible(False)
+        self._targets = preview.targets
+        self.zones.queue_draw()
+
+    def _draw(self, _area, cr, width, height):
+        for rects, colors in self._targets.values():
+            for i, (x0, y0, x1, y1) in enumerate(rects):
+                if (x1 - x0) * (y1 - y0) > 0.5:
+                    continue  # whole-screen zones are shown as the dot in the list instead
+                x, y = x0 * width, y0 * height
+                w, h = (x1 - x0) * width, (y1 - y0) * height
+                cr.rectangle(x + 1, y + 1, w - 2, h - 2)
+                cr.set_source_rgba(1, 1, 1, 0.5)
+                cr.set_line_width(1)
+                cr.stroke()
+                if i < len(colors):
+                    size = max(5.0, min(w, h) * 0.45)
+                    cr.rectangle(x + (w - size) / 2, y + (h - size) / 2, size, size)
+                    cr.set_source_rgb(*(c / 255 for c in colors[i]))
+                    cr.fill_preserve()
+                    cr.set_source_rgba(0, 0, 0, 0.5)
+                    cr.stroke()
+
+
+class LightRow(Adw.ActionRow):
+    def __init__(self, page: "ShowPage", device: Device):
+        super().__init__()
+        self.page = page
+        self.device = device
+        self._updating = False
+        self.dot = ColorDot(14)
+        self.add_prefix(self.dot)
+        self.switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.switch.connect("notify::active", self._toggled)
+        self.add_suffix(self.switch)
+        self.set_activatable_widget(self.switch)
+        self.update()
+
+    def update(self):
+        d = self.device
+        settings = self.page.manager.stream_settings(d)
+        self.set_title(GLib.markup_escape_text(d.display_name))
+        if not d.can_stream:
+            self.set_subtitle("Cloud only, too slow for light shows")
+            self.set_sensitive(False)
+            self._set_switch(False)
+            return
+        self.set_sensitive(True)
+        if self.page.kind == "sync":
+            layout = LAYOUTS.get(settings["layout"], settings["layout"])
+            detail = f"{settings['segments']} segments" if settings["streaming"] else "Single colour"
+            self.set_subtitle(f"{detail} · {layout}")
+        else:
+            self.set_subtitle(f"{settings['segments']} segments" if settings["streaming"] else "Single colour")
+        self._set_switch(settings.get(self.page.kind, True))
+
+    def _set_switch(self, value: bool):
+        self._updating = True
+        self.switch.set_active(bool(value))
+        self._updating = False
+
+    def _toggled(self, switch, _pspec):
+        if self._updating:
+            return
+        self.page.app.config.update_device_settings(self.device.id, **{self.page.kind: switch.get_active()})
+        self.page.engine.reload()
+
+
+class ShowPage(Adw.NavigationPage):
+    kind = "sync"
+    page_title = "Light show"
+    placeholder = "The preview shows up here while it runs."
+    lights_text = ""
+    preview_ratio = 16 / 9
+    preview_height = 300
+
+    def __init__(self, window):
+        super().__init__(title=self.page_title, tag=self.kind)
+        self.window = window
+        self.app = window.app
+        self.manager = self.app.manager
+        self.config = self.app.config
+        self.engine = self.app.engines[self.kind]
+        self._rows: dict[str, LightRow] = {}
+
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.toggle = Gtk.Button(label="Start")
+        self.toggle.add_css_class("suggested-action")
+        self.toggle.connect("clicked", self.on_toggle)
+        header.pack_end(self.toggle)
+        view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        view.set_content(self.page)
+        self.set_child(view)
+
+        self.page.add(self._build_preview())
+        self.build_top()
+        self.page.add(self._build_lights())
+        self.build_bottom()
+        if self.engine.running:
+            self.on_state(True, None)
+
+    # to override -------------------------------------------------------------
+    def build_top(self):
+        pass
+
+    def build_bottom(self):
+        pass
+
+    def status_text(self, preview: Preview) -> str:
+        return f"Running · {preview.backend} · {preview.fps:.0f} updates/s"
+
+    # building -----------------------------------------------------------------
+    def _build_preview(self):
+        group = Adw.PreferencesGroup()
+        frame = Gtk.AspectFrame(ratio=self.preview_ratio, obey_child=False)
+        frame.set_size_request(-1, self.preview_height)
+        self.preview = PreviewArea(self.placeholder)
+        frame.set_child(self.preview)
+        group.add(frame)
+        self.status = Gtk.Label(xalign=0, margin_top=8, wrap=True, label="Not running")
+        self.status.add_css_class("dim-label")
+        group.add(self.status)
+        return group
+
+    def _build_lights(self):
+        self.lights_group = Adw.PreferencesGroup(title="Lights", description=self.lights_text or None)
+        self.no_lights = Adw.ActionRow(title="No lights found yet")
+        self.no_lights.add_css_class("dim-label")
+        self.lights_group.add(self.no_lights)
+        for device in self.manager.list():
+            self.add_device(device)
+        return self.lights_group
+
+    def slider(self, group, section: str, title: str, key: str, lo, hi, step, fmt, reload=False):
+        values = self.config.section(section)
+        row = SliderRow(title, lo, hi, step, fmt)
+        row.set_value(float(values[key]))
+        save = Debouncer(400, lambda v: (self.config.set_in(section, key, v),
+                                         self.engine.reload() if reload else None))
+
+        def changed(scale):
+            values[key] = scale.get_value()   # the engine reads it live
+            save(scale.get_value())
+        row.scale.connect("value-changed", changed)
+        group.add(row)
+        return row
+
+    def combo(self, group, section: str, title: str, key: str, options: dict, subtitle: str | None = None):
+        values = self.config.section(section)
+        ids = list(options)
+        row = Adw.ComboRow(title=title, subtitle=subtitle)
+        row.set_model(Gtk.StringList.new(list(options.values())))
+        row.set_selected(ids.index(values[key]) if values[key] in ids else 0)
+        row.connect("notify::selected", lambda r, _p: self.config.set_in(section, key, ids[r.get_selected()]))
+        group.add(row)
+        return row
+
+    # device list --------------------------------------------------------------
+    def add_device(self, device: Device):
+        if device.id in self._rows:
+            self._rows[device.id].update()
+            return
+        row = LightRow(self, device)
+        self._rows[device.id] = row
+        self.lights_group.add(row)
+        self.no_lights.set_visible(False)
+
+    def remove_device(self, device: Device):
+        row = self._rows.pop(device.id, None)
+        if row:
+            self.lights_group.remove(row)
+        self.no_lights.set_visible(not self._rows)
+
+    def device_settings_changed(self, device: Device):
+        if device.id in self._rows:
+            self._rows[device.id].update()
+
+    # engine --------------------------------------------------------------------
+    def on_toggle(self, *_):
+        if self.engine.running:
+            self.toggle.set_sensitive(False)
+            self.status.set_label("Stopping…")
+            self.config.set_in("background", "last_show", "")
+            self.engine.stop(wait=False)
+        else:
+            self.status.set_label("Starting…")
+            self.toggle.set_sensitive(False)
+            self.app.start_show(self.kind)
+
+    def on_state(self, running: bool, message: str | None):
+        self.toggle.set_sensitive(True)
+        if running:
+            self.toggle.set_label("Stop")
+            self.toggle.remove_css_class("suggested-action")
+            self.toggle.add_css_class("destructive-action")
+            self.status.set_label(f"Running · {self.engine.backend_name}")
+        else:
+            self.toggle.set_label("Start")
+            self.toggle.remove_css_class("destructive-action")
+            self.toggle.add_css_class("suggested-action")
+            self.status.set_label(message or "Not running")
+            self.preview.show_preview(None)
+            for row in self._rows.values():
+                row.dot.set_rgb(None)
+
+    def on_preview(self, preview: Preview):
+        if not self.engine.running:
+            return
+        self.preview.show_preview(preview)
+        self.status.set_label(self.status_text(preview))
+        for device_id, (_rects, colors) in preview.targets.items():
+            row = self._rows.get(device_id)
+            if row and colors:
+                avg = tuple(int(sum(c[i] for c in colors) / len(colors)) for i in range(3))
+                row.dot.set_rgb(avg)
+
+
+class ScreenSyncPage(ShowPage):
+    kind = "sync"
+    page_title = "Screen sync"
+    placeholder = "The preview shows up here while screen sync runs."
+    lights_text = "Open a light to set how it is mounted. Lights need LAN control or Bluetooth."
+
+    def build_top(self):
+        group = Adw.PreferencesGroup(title="Colours")
+        self.combo(group, "sync", "Colour pick", "mode", sc.MODES,
+                   "Accurate matches the screen, Vivid favours strong colours, "
+                   "Dominant shows the colour covering most of each zone")
+        self.slider(group, "sync", "Saturation", "saturation", 0.0, 2.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.slider(group, "sync", "Brightness", "brightness", 0.1, 1.5, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.slider(group, "sync", "Black level", "black_level", 0, 60, 1, lambda v: f"{v:.0f}")
+
+        gamma = SliderRow("LED gamma", 1.0, 3.0, 0.05, lambda v: f"{v:.2f}")
+        gamma.set_tooltip_text("Lights are much brighter than a screen at half power. Higher values "
+                               "give deeper colours and darker shadows. Applies to all light shows.")
+        gamma.set_value(float(self.config.get("gamma", 2.0)))
+        save = Debouncer(400, lambda v: self.config.set("gamma", v))
+
+        def gamma_changed(scale):
+            self.config.data["gamma"] = scale.get_value()
+            save(scale.get_value())
+        gamma.scale.connect("value-changed", gamma_changed)
+        group.add(gamma)
+
+        letterbox = Adw.SwitchRow(title="Ignore black bars", subtitle="For films with letterboxing",
+                                  active=bool(self.config.sync.get("letterbox", True)))
+        letterbox.connect("notify::active", lambda r, _p: self.config.set_sync("letterbox", r.get_active()))
+        group.add(letterbox)
+        self.page.add(group)
+
+        speed = Adw.PreferencesGroup(title="Response")
+        self.slider(speed, "sync", "Smoothing", "smoothing", 0.0, 0.5, 0.01,
+                    lambda v: "off" if v < 0.005 else f"{v * 1000:.0f} ms")
+        fps = Adw.SpinRow.new_with_range(10, 60, 1)
+        fps.set_title("Updates per second")
+        fps.set_subtitle("Lights without segment streaming are capped at 15")
+        fps.set_value(int(self.config.sync["fps"]))
+        fps.connect("notify::value", lambda r, _p: self.config.set_sync("fps", int(r.get_value())))
+        speed.add(fps)
+        self.page.add(speed)
+
+    def build_bottom(self):
+        sync = self.config.sync
+        group = Adw.PreferencesGroup(title="Capture")
+        found = capture.available_backends()
+        ids = ["auto"] + found
+        labels = []
+        for b in ids:
+            if b == "auto":
+                try:
+                    labels.append(f"Automatic ({capture.BACKENDS[capture.auto_backend()]})")
+                except capture.CaptureError:
+                    labels.append("Automatic")
+            else:
+                labels.append(capture.BACKENDS[b])
+        row = Adw.ComboRow(title="Source")
+        row.set_model(Gtk.StringList.new(labels))
+        current = sync.get("backend", "auto")
+        row.set_selected(ids.index(current) if current in ids else 0)
+        row.connect("notify::selected", lambda r, _p: self.config.set_sync("backend", ids[r.get_selected()]))
+        group.add(row)
+
+        monitors = x11.monitors() if "x11" in found else []
+        if len(monitors) > 2:  # [all, m1, m2, ...]
+            names = ["All monitors"] + [f"Monitor {m['index']} ({m['width']}×{m['height']})"
+                                        for m in monitors[1:]]
+            mon = Adw.ComboRow(title="Monitor", subtitle="X11 only; on Wayland the share dialog decides")
+            mon.set_model(Gtk.StringList.new(names))
+            mon.set_selected(min(int(sync.get("monitor", 1)), len(names) - 1))
+            mon.connect("notify::selected", lambda r, _p: self.config.set_sync("monitor", r.get_selected()))
+            group.add(mon)
+
+        self.slider(group, "sync", "Edge depth", "edge_depth", 0.05, 0.5, 0.01,
+                    lambda v: f"{v * 100:.0f} %", reload=True)
+        restore = Adw.SwitchRow(title="Restore colours when stopping", active=sync["restore_on_stop"])
+        restore.connect("notify::active", lambda r, _p: self.config.set_sync("restore_on_stop", r.get_active()))
+        group.add(restore)
+        if "portal" in found:
+            forget = Adw.ActionRow(title="Shared screen", subtitle="The choice from the share dialog is remembered.")
+            btn = Gtk.Button(label="Ask again", valign=Gtk.Align.CENTER)
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._forget_portal)
+            forget.add_suffix(btn)
+            group.add(forget)
+        self.page.add(group)
+
+    def on_toggle(self, *_):
+        if not self.engine.running:
+            super().on_toggle()
+            self.status.set_label("Starting… If a screen share dialog opens, pick the screen the lights are behind.")
+            return
+        super().on_toggle()
+
+    def _forget_portal(self, *_):
+        self.config.set("portal_restore_token", "")
+        self.window.toast("The screen share dialog will ask again next time")
+
+
+class MusicPage(ShowPage):
+    kind = "music"
+    page_title = "Music"
+    placeholder = "Play something and press Start. The lights follow what your speakers play, no microphone needed."
+    preview_ratio = 16 / 6
+    preview_height = 180
+
+    def build_top(self):
+        group = Adw.PreferencesGroup(title="Style")
+        self.combo(group, "music", "Mode", "mode", music.MODES,
+                   "Spectrum spreads the frequencies along the light")
+        self.combo(group, "music", "Colours", "palette", music.PALETTE_LABELS)
+        self.slider(group, "music", "Sensitivity", "sensitivity", 0.3, 2.5, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.slider(group, "music", "Brightness", "brightness", 0.1, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.page.add(group)
+
+    def status_text(self, preview):
+        return f"Listening to {preview.backend.lower()} · {preview.fps:.0f} updates/s"
+
+
+class EffectCard(Gtk.ToggleButton):
+    def __init__(self, page: "EffectsPage", effect: fx.Effect):
+        super().__init__()
+        self.page = page
+        self.effect = effect
+        self.add_css_class("effect-card")
+        self.add_css_class("flat")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.swatch = Gtk.DrawingArea()
+        self.swatch.set_content_height(44)
+        self.swatch.set_content_width(96)
+        self.swatch.set_draw_func(self._draw)
+        box.append(self.swatch)
+        box.append(Gtk.Label(label=effect.label, ellipsize=3))
+        self.set_child(box)
+
+    def _draw(self, _area, cr, width, height):
+        import cairo
+        colors = fx.card_colors(self.effect, self.page.params())
+        grad = cairo.LinearGradient(0, 0, width, 0)
+        for i, c in enumerate(colors):
+            grad.add_color_stop_rgb(i / max(1, len(colors) - 1), *(v / 255 for v in c))
+        r = 8
+        cr.new_sub_path()
+        cr.arc(width - r, r, r, -math.pi / 2, 0)
+        cr.arc(width - r, height - r, r, 0, math.pi / 2)
+        cr.arc(r, height - r, r, math.pi / 2, math.pi)
+        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source(grad)
+        cr.fill()
+
+
+class EffectsPage(ShowPage):
+    kind = "effects"
+    page_title = "Effects"
+    placeholder = "Pick an effect. It runs on your PC, so it works without the cloud."
+    preview_ratio = 16 / 3
+    preview_height = 90
+
+    def params(self) -> fx.Params:
+        from goveehome.colors import parse_color
+        s = self.config.section("effects")
+        return fx.Params(speed=float(s["speed"]), color_a=parse_color(s["color_a"]),
+                         color_b=parse_color(s["color_b"]))
+
+    def build_top(self):
+        group = Adw.PreferencesGroup(title="Effect")
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                           max_children_per_line=6, min_children_per_line=2,
+                           column_spacing=6, row_spacing=6)
+        self.cards: list[EffectCard] = []
+        current = self.config.section("effects")["effect"]
+        for effect in fx.EFFECTS.values():
+            card = EffectCard(self, effect)
+            card.set_active(effect.id == current)
+            card.connect("clicked", self._pick)
+            self.cards.append(card)
+            flow.append(card)
+        group.add(flow)
+        self.page.add(group)
+
+        opts = Adw.PreferencesGroup(title="Settings")
+        self.slider(opts, "effects", "Speed", "speed", 0.1, 4.0, 0.05, lambda v: f"{v:.2f}×")
+        self.slider(opts, "effects", "Brightness", "brightness", 0.05, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.color_rows = []
+        for key, title in (("color_a", "First colour"), ("color_b", "Second colour")):
+            from goveehome.colors import parse_color
+            row = Adw.ActionRow(title=title)
+            button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
+            button.set_rgba(rgba_from_rgb(parse_color(self.config.section("effects")[key])))
+            button.connect("notify::rgba", self._color_changed, key)
+            row.add_suffix(button)
+            row.set_activatable_widget(button)
+            opts.add(row)
+            self.color_rows.append(row)
+        self.page.add(opts)
+        self._update_color_rows()
+
+    def _color_changed(self, button, _pspec, key):
+        rgb = rgb_from_rgba(button.get_rgba())
+        self.config.set_in("effects", key, "#{:02x}{:02x}{:02x}".format(*rgb))
+        for card in self.cards:
+            card.swatch.queue_draw()
+
+    def _update_color_rows(self):
+        effect = fx.EFFECTS.get(self.config.section("effects")["effect"], fx.EFFECTS["rainbow"])
+        for i, row in enumerate(self.color_rows):
+            row.set_sensitive(effect.uses_colors > i)
+
+    def _pick(self, card: EffectCard):
+        for other in self.cards:
+            if other is not card:
+                other.set_active(False)
+        card.set_active(True)
+        self.config.set_in("effects", "effect", card.effect.id)
+        self._update_color_rows()
+        if not self.engine.running:
+            self.on_toggle()
+
+    def status_text(self, preview):
+        return f"Running · {preview.backend}"

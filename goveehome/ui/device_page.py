@@ -1,130 +1,47 @@
 from __future__ import annotations
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from goveehome import skus
-from goveehome.colors import NAMED_COLORS, to_hex
+from goveehome.colors import to_hex
 from goveehome.models import Device
+from goveehome.protocol import cloud
 from goveehome.sync.zones import LAYOUTS
-from goveehome.ui.widgets import ColorDot, Debouncer, SliderRow, Swatch, color_for_state
-
-PALETTE = [
-    ("Warm white", NAMED_COLORS["warm"]),
-    ("White", NAMED_COLORS["white"]),
-    ("Red", NAMED_COLORS["red"]),
-    ("Orange", NAMED_COLORS["orange"]),
-    ("Amber", NAMED_COLORS["amber"]),
-    ("Yellow", NAMED_COLORS["yellow"]),
-    ("Green", NAMED_COLORS["green"]),
-    ("Teal", NAMED_COLORS["teal"]),
-    ("Cyan", NAMED_COLORS["cyan"]),
-    ("Blue", NAMED_COLORS["blue"]),
-    ("Indigo", NAMED_COLORS["indigo"]),
-    ("Violet", NAMED_COLORS["violet"]),
-    ("Magenta", NAMED_COLORS["magenta"]),
-    ("Pink", NAMED_COLORS["pink"]),
-]
+from goveehome.ui.control_page import ControlPage
+from goveehome.ui.widgets import ColorPanel, Debouncer, SliderRow, color_for_state
 
 LAYOUT_IDS = list(LAYOUTS)
 
 
-class DevicePage(Adw.NavigationPage):
+class DevicePage(ControlPage):
     def __init__(self, window, device: Device):
-        super().__init__(title=device.display_name, tag=device.id)
-        self.window = window
-        self.app = window.app
-        self.manager = self.app.manager
+        super().__init__(window, device.display_name, device.id)
         self.device = device
-        self._updating = False
+        self._white_preview = False
 
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        view.add_top_bar(header)
-
-        self.power = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Power")
-        self.power.connect("notify::active", self._on_power)
-        header.pack_end(self.power)
-
-        page = Adw.PreferencesPage()
-        view.set_content(page)
-        self.set_child(view)
-
-        page.add(self._build_summary())
-        page.add(self._build_light())
-        page.add(self._build_color())
+        self.build_summary()
+        self.build_light()
         if device.cloud:
-            page.add(self._build_scenes())
-        page.add(self._build_sync())
-        page.add(self._build_details())
-
+            self._build_scenes()
+            self._build_cloud_extras()
+        self.build_timer()
+        self._build_shows()
+        self._build_correction()
+        self._build_details()
         self.refresh()
-        self.connect("showing", lambda *_: self.manager.refresh(self.device))
 
-    # building -----------------------------------------------------------------
-    def _build_summary(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup()
-        box = Gtk.Box(spacing=16, margin_bottom=6)
-        self.big_dot = ColorDot(56)
-        box.append(self.big_dot)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=2)
-        self.title_label = Gtk.Label(xalign=0, wrap=True)
-        self.title_label.add_css_class("title-2")
-        self.status_label = Gtk.Label(xalign=0, wrap=True)
-        self.status_label.add_css_class("dim-label")
-        text.append(self.title_label)
-        text.append(self.status_label)
-        box.append(text)
-        group.add(box)
-        return group
+    def targets(self):
+        return [self.device]
 
-    def _build_light(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Light")
-        self.brightness = SliderRow("Brightness", 1, 100, 1, lambda v: f"{v:.0f} %",
-                                    icon="display-brightness-symbolic")
-        send = Debouncer(150, lambda v: self.manager.set_brightness(self.device, int(v)))
-        self.brightness.scale.connect("value-changed", lambda s: self._updating or send(s.get_value()))
-        group.add(self.brightness)
+    def on_showing(self):
+        self.manager.refresh(self.device)
 
-        self.kelvin = SliderRow("White", 2000, 9000, 100, lambda v: f"{v:.0f} K",
-                                icon="weather-clear-symbolic")
-        for mark, text in ((2700, "Warm"), (4500, None), (6500, "Daylight")):
-            self.kelvin.scale.add_mark(mark, Gtk.PositionType.BOTTOM, text)
-        send_k = Debouncer(200, lambda v: self.manager.set_kelvin(self.device, int(v)))
-        self.kelvin.scale.connect("value-changed", lambda s: self._updating or send_k(s.get_value()))
-        group.add(self.kelvin)
-        return group
-
-    def _build_color(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Colour")
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                           max_children_per_line=14, min_children_per_line=5,
-                           column_spacing=4, row_spacing=4,
-                           margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
-        self.swatches = []
-        for name, rgb in PALETTE:
-            sw = Swatch(name, rgb, self._pick)
-            self.swatches.append(sw)
-            flow.append(sw)
-        swatch_row = Adw.PreferencesRow(activatable=False, title="Preset colours")
-        swatch_row.set_child(flow)
-        group.add(swatch_row)
-
-        row = Adw.ActionRow(title="Custom colour")
-        self.color_button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False),
-                                                  valign=Gtk.Align.CENTER)
-        self.color_button.connect("notify::rgba", self._on_custom_color)
-        row.add_suffix(self.color_button)
-        row.set_activatable_widget(self.color_button)
-        self.hex_label = Gtk.Label()
-        self.hex_label.add_css_class("dim-label")
-        self.hex_label.add_css_class("monospace")
-        row.add_suffix(self.hex_label)
-        group.add(row)
-        return group
-
-    def _build_scenes(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Scenes", description="Loaded from your Govee account.")
-        self.scene_row = Adw.ComboRow(title="Scene", sensitive=False)
+    # cloud features -------------------------------------------------------------
+    def _build_scenes(self):
+        group = Adw.PreferencesGroup(title="Scenes",
+                                     description="Scenes and your DIY scenes from the Govee account. "
+                                                 "They run on the light itself.")
+        self.scene_row = Adw.ComboRow(title="Scene", sensitive=False, enable_search=True)
         self.scene_row.set_model(Gtk.StringList.new(["Loading…"]))
         self._scenes: list[dict] = []
         apply = Gtk.Button(label="Apply", valign=Gtk.Align.CENTER, sensitive=False)
@@ -133,30 +50,120 @@ class DevicePage(Adw.NavigationPage):
         self.scene_apply = apply
         self.scene_row.add_suffix(apply)
         group.add(self.scene_row)
-
-        def loaded(scenes):
-            GLib.idle_add(self._scenes_loaded, scenes)
         if self.manager.cloud:
-            self.manager.load_scenes(self.device, loaded)
+            self.manager.load_scenes(self.device, lambda s: GLib.idle_add(self._scenes_loaded, s))
         else:
             self.scene_row.set_model(Gtk.StringList.new(["Add an API key in Preferences"]))
-        return group
+        self.page.add(group)
 
-    def _build_sync(self) -> Adw.PreferencesGroup:
+    def _build_cloud_extras(self):
+        caps = self.device.cloud_capabilities
+        count = cloud.segment_count(caps)
+        if count > 1 and self.manager.cloud:
+            self._segment_buttons: list[Gtk.ToggleButton] = []
+            flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                               max_children_per_line=15, min_children_per_line=5,
+                               column_spacing=4, row_spacing=4,
+                               margin_top=8, margin_bottom=4, margin_start=8, margin_end=8)
+            for i in range(count):
+                b = Gtk.ToggleButton(label=str(i + 1))
+                self._segment_buttons.append(b)
+                flow.append(b)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            box.append(flow)
+            actions = Gtk.Box(spacing=6, margin_start=8, margin_bottom=8)
+            for label, value in (("Select all", True), ("Clear", False)):
+                btn = Gtk.Button(label=label)
+                btn.add_css_class("flat")
+                btn.connect("clicked", lambda _b, v=value: [s.set_active(v) for s in self._segment_buttons])
+                actions.append(btn)
+            box.append(actions)
+            pick = Adw.PreferencesRow(activatable=False, title="Segments")
+            pick.set_child(box)
+            panel = ColorPanel(self.app, self._paint_segments, title="Segments",
+                               description="Pick segments, then a colour. This goes through the "
+                                           "cloud, so it takes a moment.", first_row=pick)
+            self.page.add(panel.group)
+
+        modes = cloud.music_modes(caps)
+        if modes and self.manager.cloud:
+            group = Adw.PreferencesGroup(title="Music mode on the light",
+                                         description="Uses the microphone built into the light. "
+                                                     "For music from this PC use Music in the sidebar.")
+            self._music_modes = modes
+            self.music_row = Adw.ComboRow(title="Mode")
+            self.music_row.set_model(Gtk.StringList.new([name for name, _ in modes]))
+            group.add(self.music_row)
+            self.music_sens = SliderRow("Sensitivity", 0, 100, 1, lambda v: f"{v:.0f}")
+            self.music_sens.set_value(70)
+            group.add(self.music_sens)
+            start = Adw.ActionRow(title="Start music mode")
+            btn = Gtk.Button(label="Start", valign=Gtk.Align.CENTER)
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._start_music_mode)
+            start.add_suffix(btn)
+            group.add(start)
+            self.page.add(group)
+
+        toggles = cloud.toggles(caps)
+        if toggles and self.manager.cloud:
+            group = Adw.PreferencesGroup(title="Options")
+            for instance, label in toggles:
+                row = Adw.ActionRow(title=label)
+                for text, on in (("Off", False), ("On", True)):
+                    b = Gtk.Button(label=text, valign=Gtk.Align.CENTER)
+                    b.add_css_class("flat")
+                    b.connect("clicked", lambda _b, i=instance, v=on: self.manager.set_toggle(self.device, i, v))
+                    row.add_suffix(b)
+                group.add(row)
+            self.page.add(group)
+
+    def _paint_segments(self, rgb):
+        chosen = [i for i, b in enumerate(self._segment_buttons) if b.get_active()]
+        if not chosen:
+            self.window.toast("Select one or more segments first")
+            return
+        self.manager.set_segment_color(self.device, chosen, rgb)
+
+    def _start_music_mode(self, *_):
+        idx = self.music_row.get_selected()
+        if 0 <= idx < len(self._music_modes):
+            self.manager.set_music_mode(self.device, self._music_modes[idx][1], int(self.music_sens.get_value()))
+
+    def _scenes_loaded(self, scenes):
+        self._scenes = scenes
+        if scenes:
+            names = [s["name"] + (" (DIY)" if s.get("instance") == "diyScene" else "") for s in scenes]
+            self.scene_row.set_model(Gtk.StringList.new(names))
+            self.scene_row.set_sensitive(True)
+            self.scene_apply.set_sensitive(True)
+        else:
+            self.scene_row.set_model(Gtk.StringList.new(["No scenes for this light"]))
+        return GLib.SOURCE_REMOVE
+
+    def _apply_scene(self, *_):
+        idx = self.scene_row.get_selected()
+        if 0 <= idx < len(self._scenes):
+            self.manager.set_scene(self.device, self._scenes[idx])
+
+    # light shows ------------------------------------------------------------------
+    def _build_shows(self):
         settings = self.manager.stream_settings(self.device)
         info = skus.lookup(self.device.sku)
-        group = Adw.PreferencesGroup(title="Screen sync")
+        group = Adw.PreferencesGroup(title="Light shows")
         if not self.device.can_stream:
             group.set_description("This light is only reachable through the cloud, which is too slow "
-                                  "for screen sync. Turn on LAN Control for it in the phone app.")
-        self.sync_switch = Adw.SwitchRow(title="Use for screen sync", active=settings["sync"],
-                                         sensitive=self.device.can_stream)
-        self.sync_switch.connect("notify::active", lambda r, _p: self._save_sync(sync=r.get_active()))
-        group.add(self.sync_switch)
+                                  "for screen sync, music and effects. Turn on LAN Control for it in "
+                                  "the phone app.")
+        for key, title in (("sync", "Screen sync"), ("music", "Music"), ("effects", "Effects")):
+            row = Adw.SwitchRow(title=f"Use for {title.lower()}", active=settings.get(key, True),
+                                sensitive=self.device.can_stream)
+            row.connect("notify::active", lambda r, _p, k=key: self._save_sync(**{k: r.get_active()}))
+            group.add(row)
 
         self.stream_switch = Adw.SwitchRow(
             title="Segment streaming",
-            subtitle="Sends a colour per segment. Works on DreamView / Razer capable lights.",
+            subtitle="A colour per segment. Works on lights with DreamView / Razer support.",
             active=settings["streaming"], sensitive=bool(self.device.ip))
         self.stream_switch.connect("notify::active", lambda r, _p: self._save_sync(streaming=r.get_active()))
         group.add(self.stream_switch)
@@ -165,15 +172,13 @@ class DevicePage(Adw.NavigationPage):
         self.segments_row.set_title("Segments")
         stored = self.app.config.device_settings(self.device.id)["segments"]
         self.segments_row.set_value(stored or info.segments)
-        self.segments_row.connect("notify::value",
-                                  lambda r, _p: self._save_sync(segments=int(r.get_value())))
+        self.segments_row.connect("notify::value", lambda r, _p: self._save_sync(segments=int(r.get_value())))
         group.add(self.segments_row)
 
-        self.layout_row = Adw.ComboRow(title="Mounting")
+        self.layout_row = Adw.ComboRow(title="Mounting", subtitle="Where on the screen the light takes its colours from")
         self.layout_row.set_model(Gtk.StringList.new(list(LAYOUTS.values())))
         self.layout_row.set_selected(LAYOUT_IDS.index(settings["layout"]) if settings["layout"] in LAYOUT_IDS else 0)
-        self.layout_row.connect("notify::selected",
-                                lambda r, _p: self._save_sync(layout=LAYOUT_IDS[r.get_selected()]))
+        self.layout_row.connect("notify::selected", lambda r, _p: self._save_sync(layout=LAYOUT_IDS[r.get_selected()]))
         group.add(self.layout_row)
 
         self.reverse_row = Adw.SwitchRow(title="Reverse direction", active=settings["reverse"])
@@ -183,10 +188,52 @@ class DevicePage(Adw.NavigationPage):
         self.gradient_row = Adw.SwitchRow(title="Blend between segments", active=settings.get("gradient", True))
         self.gradient_row.connect("notify::active", lambda r, _p: self._save_sync(gradient=r.get_active()))
         group.add(self.gradient_row)
-        self._update_sync_sensitivity()
-        return group
 
-    def _build_details(self) -> Adw.PreferencesGroup:
+        identify = Adw.ActionRow(title="Check the direction",
+                                 subtitle="Red lights up where the mounting starts (bottom left for a TV "
+                                          "backlight), blue where it ends.")
+        btn = Gtk.Button(label="Identify", valign=Gtk.Align.CENTER, sensitive=self.device.can_stream)
+        btn.add_css_class("flat")
+        btn.connect("clicked", lambda *_: self.manager.identify(self.device))
+        identify.add_suffix(btn)
+        group.add(identify)
+        self._update_sync_sensitivity()
+        self.page.add(group)
+
+    def _build_correction(self):
+        gains = self.app.config.device_settings(self.device.id).get("gains") or [1.0, 1.0, 1.0]
+        group = Adw.PreferencesGroup(
+            title="Colour correction",
+            description="Many LEDs look bluish or greenish compared to a screen. Lower a channel "
+                        "until white looks neutral. Used by light shows.")
+        self.gain_rows = []
+        send_white = Debouncer(150, lambda _v: self._send_white())
+        for i, name in enumerate(("Red", "Green", "Blue")):
+            row = SliderRow(name, 0.3, 1.0, 0.01, lambda v: f"{v * 100:.0f} %")
+            row.set_value(float(gains[i]))
+            row.scale.connect("value-changed", lambda _s: (self._save_gains(), send_white(1)))
+            self.gain_rows.append(row)
+            group.add(row)
+        white = Adw.ActionRow(title="Show white with this correction")
+        btn = Gtk.Button(label="Show", valign=Gtk.Align.CENTER, sensitive=self.device.can_stream)
+        btn.add_css_class("flat")
+        btn.connect("clicked", lambda *_: (setattr(self, "_white_preview", True), self._send_white()))
+        white.add_suffix(btn)
+        group.add(white)
+        self.page.add(group)
+
+    def _save_gains(self):
+        gains = [round(r.get_value(), 3) for r in self.gain_rows]
+        self.app.config.update_device_settings(self.device.id, gains=gains)
+        self._notify_shows()
+
+    def _send_white(self):
+        if not self._white_preview:
+            return
+        gains = [r.get_value() for r in self.gain_rows]
+        self.manager.set_color(self.device, tuple(int(255 * g) for g in gains))
+
+    def _build_details(self):
         d = self.device
         group = Adw.PreferencesGroup(title="Details")
         self.name_row = Adw.EntryRow(title="Name", show_apply_button=True)
@@ -216,81 +263,38 @@ class DevicePage(Adw.NavigationPage):
         btn.connect("clicked", lambda *_: self.window.forget_device(d))
         forget.add_suffix(btn)
         group.add(forget)
-        return group
+        self.page.add(group)
 
-    # behaviour ----------------------------------------------------------------
+    # behaviour ---------------------------------------------------------------------
     def refresh(self) -> None:
         d = self.device
         st = d.state
-        self._updating = True
-        try:
-            self.set_title(d.display_name)
-            self.title_label.set_label(d.display_name)
-            if st.on is None:
-                status = "State unknown"
-            elif not st.on:
-                status = "Off"
-            elif st.kelvin:
-                status = f"On · white {st.kelvin} K"
-            elif st.color:
-                status = f"On · {to_hex(st.color)}"
-            else:
-                status = "On"
-            if st.on and st.brightness:
-                status += f" · {st.brightness} %"
-            if d.id in self.manager.streaming_devices:
-                status += " · following the screen"
-            self.status_label.set_label(status)
-            self.big_dot.set_rgb(color_for_state(st))
-            self.power.set_active(bool(st.on))
-            if st.brightness:
-                self.brightness.set_value(st.brightness)
-            if st.kelvin:
-                self.kelvin.set_value(st.kelvin)
-            if st.color and not st.kelvin:
-                rgba = Gdk.RGBA()
-                rgba.red, rgba.green, rgba.blue, rgba.alpha = (*(c / 255 for c in st.color), 1.0)
-                self.color_button.set_rgba(rgba)
-                self.hex_label.set_label(to_hex(st.color))
-            for sw in self.swatches:
-                sw.set_selected(bool(st.color) and not st.kelvin and sw.rgb == st.color)
-            self.address_row.set_subtitle(d.ip or "—")
-            self.via_row.set_subtitle(", ".join(t.label for t in d.transports) or "—")
-        finally:
-            self._updating = False
-
-    def _on_power(self, switch, _pspec):
-        if not self._updating:
-            self.manager.set_power(self.device, switch.get_active())
-
-    def _pick(self, rgb):
-        self.manager.set_color(self.device, rgb)
-
-    def _on_custom_color(self, button, _pspec):
-        if self._updating:
-            return
-        c = button.get_rgba()
-        self.manager.set_color(self.device, (round(c.red * 255), round(c.green * 255), round(c.blue * 255)))
-
-    def _scenes_loaded(self, scenes):
-        self._scenes = scenes
-        if scenes:
-            self.scene_row.set_model(Gtk.StringList.new([s["name"] for s in scenes]))
-            self.scene_row.set_sensitive(True)
-            self.scene_apply.set_sensitive(True)
+        if st.on is None:
+            status = "State unknown"
+        elif not st.on:
+            status = "Off"
+        elif st.kelvin:
+            status = f"On · white {st.kelvin} K"
+        elif st.color:
+            status = f"On · {to_hex(st.color)}"
         else:
-            self.scene_row.set_model(Gtk.StringList.new(["No scenes for this light"]))
-        return GLib.SOURCE_REMOVE
-
-    def _apply_scene(self, *_):
-        idx = self.scene_row.get_selected()
-        if 0 <= idx < len(self._scenes):
-            self.manager.set_scene(self.device, self._scenes[idx]["value"])
+            status = "On"
+        if st.on and st.brightness:
+            status += f" · {st.brightness} %"
+        if d.id in self.manager.streaming_devices:
+            status += " · light show running"
+        self.set_title(d.display_name)
+        self.show_state(d.display_name, status, color_for_state(st), st.on, st.brightness, st.kelvin, st.color)
+        self.address_row.set_subtitle(d.ip or "—")
+        self.via_row.set_subtitle(", ".join(t.label for t in d.transports) or "—")
 
     def _save_sync(self, **changes):
         self.app.config.update_device_settings(self.device.id, **changes)
         self._update_sync_sensitivity()
-        self.window.sync_page.device_settings_changed(self.device)
+        self._notify_shows()
+
+    def _notify_shows(self):
+        self.window.device_settings_changed(self.device)
 
     def _update_sync_sensitivity(self):
         streaming = self.stream_switch.get_active() and bool(self.device.ip)
