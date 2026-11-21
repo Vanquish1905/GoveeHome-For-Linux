@@ -21,8 +21,8 @@ def _manager(args) -> DeviceManager:
         if host not in config["extra_hosts"]:
             config["extra_hosts"].append(host)
     manager = DeviceManager(config)
-    # background rescans only make sense for the long running sync command
-    manager.start(rescan=args.command == "sync")
+    # background rescans only make sense for the long running commands
+    manager.start(rescan=args.command in ("sync", "music", "effect"))
     return manager
 
 
@@ -102,15 +102,13 @@ def cmd_temp(args) -> int:
     return _each(args, lambda m, d: m.set_kelvin(d, args.kelvin))
 
 
-def cmd_sync(args) -> int:
-    from goveehome.sync.engine import SyncEngine
+def _run_show(args, kind: str, source_factory, prepare=None) -> int:
+    from goveehome.sync.engine import LightEngine
 
     manager = _manager(args)
     _wait_for_devices(manager, args.timeout)
-    if args.backend:
-        manager.config.sync["backend"] = args.backend
-    if args.fps:
-        manager.config.sync["fps"] = args.fps
+    if prepare:
+        prepare(manager.config)
     ids = None
     if args.targets and args.targets != ["all"]:
         ids = [d.id for t in args.targets for d in _resolve(manager, t)]
@@ -120,14 +118,14 @@ def cmd_sync(args) -> int:
 
     def on_state(running: bool, message: str | None) -> None:
         if running:
-            print(f"Screen sync running ({engine.backend_name}). Press Ctrl+C to stop.")
+            print(f"Running ({engine.backend_name}). Press Ctrl+C to stop.")
         else:
             if message:
                 print(message, file=sys.stderr)
                 result["code"] = 1
             done.set()
 
-    engine = SyncEngine(manager, on_state=on_state)
+    engine = LightEngine(manager, lambda: source_factory(manager.config), on_state=on_state, kind=kind)
     signal.signal(signal.SIGINT, lambda *_: engine.stop(wait=False))
     signal.signal(signal.SIGTERM, lambda *_: engine.stop(wait=False))
     engine.start(ids)
@@ -135,6 +133,54 @@ def cmd_sync(args) -> int:
         pass
     manager.stop()
     return result["code"]
+
+
+def cmd_sync(args) -> int:
+    from goveehome.sync.engine import ScreenSource
+
+    def prepare(config):
+        if args.backend:
+            config.sync["backend"] = args.backend
+        if args.fps:
+            config.sync["fps"] = args.fps
+    return _run_show(args, "sync", ScreenSource, prepare)
+
+
+def cmd_music(args) -> int:
+    from goveehome.sync.music import MusicSource
+
+    def prepare(config):
+        if args.mode:
+            config.section("music")["mode"] = args.mode
+        if args.palette:
+            config.section("music")["palette"] = args.palette
+    return _run_show(args, "music", MusicSource, prepare)
+
+
+def cmd_effect(args) -> int:
+    from goveehome.sync import effects
+
+    if args.name == "list":
+        for e in effects.EFFECTS.values():
+            print(f"{e.id:<10} {e.label}")
+        return 0
+    if args.name not in effects.EFFECTS:
+        raise SystemExit(f"Unknown effect {args.name!r}. Run 'goveehome-cli effect list'.")
+
+    def prepare(config):
+        section = config.section("effects")
+        section["effect"] = args.name
+        if args.speed:
+            section["speed"] = args.speed
+        if args.brightness is not None:
+            section["brightness"] = max(0.0, min(1.0, args.brightness / 100))
+        for key, value in (("color_a", args.color), ("color_b", args.color2)):
+            if value:
+                try:
+                    section[key] = "#{:02x}{:02x}{:02x}".format(*parse_color(value))
+                except ValueError as exc:
+                    raise SystemExit(str(exc))
+    return _run_show(args, "effects", effects.EffectSource, prepare)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -173,6 +219,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--backend", choices=[b for b in capture.BACKENDS if b != "auto"])
     s.add_argument("--fps", type=int)
     s.set_defaults(func=cmd_sync)
+
+    from goveehome.sync.music import MODES as MUSIC_MODES, PALETTES
+    s = sub.add_parser("music", help="lights react to the music playing on this PC")
+    s.add_argument("targets", nargs="*", help="lights to use (default: all with music enabled in the app)")
+    s.add_argument("--mode", choices=list(MUSIC_MODES))
+    s.add_argument("--palette", choices=list(PALETTES))
+    s.set_defaults(func=cmd_music)
+
+    s = sub.add_parser("effect", help="run a built-in effect ('effect list' shows them)")
+    s.add_argument("name", help="effect id, or 'list'")
+    s.add_argument("targets", nargs="*", help="lights to use (default: all with effects enabled in the app)")
+    s.add_argument("--speed", type=float)
+    s.add_argument("--brightness", type=int, metavar="PERCENT")
+    s.add_argument("--color", help="first colour for gradient / breathe")
+    s.add_argument("--color2", help="second colour for gradient")
+    s.set_defaults(func=cmd_effect)
     return p
 
 
