@@ -1,5 +1,5 @@
 Name:           goveehome
-Version:        1.4.0
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        Control Govee lights on Linux and sync them with your screen
 
@@ -68,6 +68,8 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/*.metainfo.xml
 %{_userunitdir}/goveehome-sync.service
 
 %changelog
+* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.5.0-1
+- Strongest-colour pick for screen sync, 30 animated effects with previews
 * Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.4.0-1
 - Screen sync follows videos in windows and ignores white areas
 * Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.3.0-1

@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.4.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.5.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -209,11 +209,12 @@ The defaults are a good start. If the lights still don't look like the screen, i
 2. **LED gamma** (Screen sync → Colours): LEDs at half power look much brighter than a screen
    at half brightness. Gamma makes up for that. Colours look washed out or pastel → raise it
    (2.2–2.6). Dark scenes are too dark on the lights → lower it (1.6–1.8).
-3. **Colour pick**: *Colourful* (the default) lets the colours in a zone win over white, grey
-   and black areas, so a zone that is half white page and half red video gives red. *Dominant
-   colour* takes the colour that covers the most of the zone. *Exact average* is the plain
-   average of everything in the zone; it matches the screen literally, which on a normal
-   desktop mostly means white and grey.
+3. **Colour pick**: *Colourful* (the default) takes the strongest colour in a zone and lets it
+   win over white, grey and black areas, so a zone that is half white page and half red video
+   gives red, and a zone full of different colours gives the strongest of them instead of a
+   grey mix. *Dominant colour* takes the colour that covers the most of the zone. *Exact
+   average* is the plain average of everything in the zone; it matches the screen literally,
+   which mostly means grey and white.
 4. **Saturation** 100–130 % and **Black level** (colours darker than this are sent as black,
    so dark scenes don't turn the lights a dim brown).
 5. **Ignore black bars** stops letterboxed films from making the top and bottom zones black.
@@ -247,8 +248,14 @@ tropical, retro, club, Christmas, Halloween, white) or **Your colours**: up to s
 you choose under *Your colours* with the + and − buttons. Changing one of them switches to
 your palette. *Sensitivity* sets how strongly it reacts.
 
-**Effects** (sidebar, Ctrl+3) are 37 animated scenes rendered on the PC, in four groups:
+**Effects** (sidebar, Ctrl+3) are 67 effects rendered on the PC, in five groups. Every card
+plays a live preview of its effect while the page is open.
 
+- *Animated*: moving, multi-coloured animations: juggle, sweep, beat bands, confetti,
+  bouncing balls, ripple, rainbow chase, colour blocks, RGB spin, candy stripes, neon chase,
+  ping pong, colour waves, kaleidoscope, galaxy, rainbow sparkle, double helix, spectrum
+  sweep, comets (rainbow, ice, pink, fire, green), colour flows (cotton candy, tropical,
+  inferno, mint and lime, cyber, deep sea) and breathing colours
 - *Colourful*: rainbow, colour cycle, rainbow pulse, plasma, pastel dream
 - *Your colours*: solid, gradient, three colours, breathe, colour fade, wave, chase, colour
   wipe, meteor, scanner, heartbeat, strobe
@@ -402,14 +409,22 @@ Go through [Getting the colours to match](#getting-the-colours-to-match). With m
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
 
-**Screen sync: the lights only show white (in different brightnesses)**
+**Screen sync: the lights only change brightness, not colour**
 
-That's what the screen edges look like on a normal desktop: white pages, grey windows. Update
-to 1.4.0 or newer, which takes the colours from the video instead (*Follow the video*) and
-uses the *Colourful* colour pick. Check that both are on in Screen sync. For a quick test,
-play a colourful video fullscreen. If the preview shows colour but the lights stay white,
-press *Identify* on the light's page; if that shows red and blue, the light is fine and the
-colour pick or *Saturation* needs raising, otherwise see *Segment streaming* above.
+Update to 1.5.0 or newer. Older versions averaged each zone (and, for lights without segment
+streaming, the whole screen) into one colour, and different colours average out to grey or
+white. Now the strongest colour wins. Check that *Colour pick* is *Colourful* and
+*Follow the video* is on.
+
+Then look at the Screen sync page while it runs:
+
+- The line under the status says how much of the captured picture is colourful. If it says
+  0 % while your screen is clearly colourful, capture is the problem: open an issue on GitHub
+  with your desktop (GNOME / KDE, Wayland / X11) and what the line says.
+- Each light in the list has a colour strip showing exactly what it is being sent. If the
+  strip is colourful but the light stays white, press *Identify* on the light's page. If the
+  light shows red and blue there, raise *Saturation*. If it doesn't, the light doesn't take
+  segment streaming: turn *Segment streaming* off for it; it then gets one strong colour.
 
 **Lights flash or flicker at random**
 

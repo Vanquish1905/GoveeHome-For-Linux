@@ -22,7 +22,8 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   like the H6056 Flow Plus (one bar on each side of the screen)
 - *Follow the video*: when a film or game runs in a window, the lights take their colours
   from it instead of the white page or desktop around it
-- An *Identify* test that shows on the light which side of the screen each segment follows
+- An *Identify* test that shows on the light which side of the screen each segment follows,
+  and a live colour strip per light showing exactly what it is being sent
 - Colours that match: every screen pixel counts, mixing happens in linear light and the
   result is gamma corrected for LEDs; per-light white balance on top
 - Fast: in testing on X11, about 35 ms from a change on the screen to the command leaving
@@ -34,10 +35,12 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 (no microphone). Six modes (spectrum, mirrored spectrum, energy, beat pulse, bass glow,
 rolling) and 25 colour palettes, including your own colours.
 
-**Effects**: 37 animated scenes rendered on the PC, no cloud needed: rainbow, plasma, fire,
-candle, lava lamp, aurora, ocean, thunderstorm, snowfall, sunrise alarm, fireworks, twinkle,
-meteor, scanner, chase, Christmas and more. Speed, brightness, size, direction and up to
-three of your own colours.
+**Effects**: 67 effects rendered on the PC, no cloud needed, with live animated previews on
+the effects page. 30 of them are moving, multi-coloured animations (juggle, bouncing balls,
+ripple, confetti, colour waves, kaleidoscope, galaxy, double helix, comets in five colours,
+colour flows and more); the rest include rainbow, plasma, fire, candle, lava lamp, aurora,
+ocean, thunderstorm, snowfall, sunrise alarm, fireworks, twinkle, meteor, scanner, chase and
+Christmas. Speed, brightness, size, direction and up to three of your own colours.
 
 **For every light show you choose which lights take part**, one by one, all at once or by
 group.
@@ -138,9 +141,12 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
    in a window, the zones are laid over the video instead of the whole screen, so the white
    page around it doesn't turn the lights white. Letterbox bars of films are cut off.
 3. **Zones.** Each light gets one zone per segment, depending on how it's mounted.
-4. **Colour.** Within each zone, coloured pixels count far more than white, grey and black
-   ones, and mixing happens in linear light (red next to green gives yellow, not brown). A
-   zone that really is white stays white. Saturation and a black level are applied.
+4. **Colour.** Within each zone the app looks for the strongest colour family: pixels are
+   grouped by hue and weighted by how saturated and bright they are, and only the winning
+   group is averaged (in linear light). Averaging everything would turn a colourful picture
+   into grey, because different colours cancel out, and white pages wash it out further. A
+   zone that really is white or grey stays that way. Lights that can only show one colour
+   get the strongest colour of all their zones the same way.
 5. **Smoothing.** Time based, 40 ms by default, and big jumps like scene cuts go through at
    once.
 6. **Output.** Colours are gamma corrected for LEDs and white balanced per light. Segment
