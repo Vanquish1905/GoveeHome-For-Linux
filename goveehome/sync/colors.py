@@ -182,6 +182,33 @@ def adjust(color: np.ndarray, saturation: float = 1.0, brightness: float = 1.0,
     return c
 
 
+def vivid_colours(colors: np.ndarray, vividness: float = 4.0, neutral: float = 0.06) -> np.ndarray:
+    """Turn screen colours into clean light colours, like Govee's own sync.
+
+    Picture colours are rarely pure: skin, sky or grass all have the three
+    channels on. Lights with white LEDs (RGBWW / RGBICWW, like the H6056)
+    show that shared part as white, so everything comes out pale or white.
+    The saturation is pushed along a curve (1 - (1 - s) ** vividness):
+    clearly coloured areas become pure colours, slightly tinted ones get
+    stronger, and grey or white (saturation below `neutral`) stays neutral.
+    Brightness (the strongest channel) is kept. vividness <= 1 is off.
+    """
+    c = np.asarray(colors, dtype=np.float32)
+    if vividness <= 1.0:
+        return c
+    mx = c.max(axis=-1, keepdims=True)
+    mn = c.min(axis=-1, keepdims=True)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+    ramp = np.clip((sat - neutral) / (1 - neutral), 0, 1)
+    new_sat = np.where(sat > neutral, 1 - (1 - ramp) ** vividness, sat)
+    new_sat = np.maximum(new_sat, sat)
+    # rebuild: same hue and brightness, new saturation
+    with np.errstate(invalid="ignore", divide="ignore"):
+        hue_part = np.where(mx - mn > 1e-6, (c - mn) / np.maximum(mx - mn, 1e-6), 0.0)
+    new_min = mx * (1 - new_sat)
+    return np.clip(new_min + hue_part * (mx - new_min), 0, 255)
+
+
 def led_output(colors: np.ndarray, gamma: float = 2.0,
                gains: Sequence[float] = (1.0, 1.0, 1.0)) -> np.ndarray:
     """sRGB colours -> values for the LED driver (gamma + white balance)."""

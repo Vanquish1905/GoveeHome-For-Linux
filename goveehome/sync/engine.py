@@ -180,7 +180,9 @@ class ScreenSource(Source):
         saturation = float(sync.get("saturation", 1.15))
         brightness = float(sync.get("brightness", 1.0))
         black = float(sync.get("black_level", 8))
-        return {t.device.id: sc.adjust(analyzer.zones(t.rects, mode), saturation, brightness, black)
+        vividness = float(sync.get("vividness", 4.0))
+        return {t.device.id: sc.vivid_colours(
+                    sc.adjust(analyzer.zones(t.rects, mode), saturation, brightness, black), vividness)
                 for t in targets}
 
     def _describe(self, frame: np.ndarray) -> None:

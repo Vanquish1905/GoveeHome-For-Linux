@@ -345,6 +345,11 @@ class ScreenSyncPage(ShowPage):
         group = Adw.PreferencesGroup(title="Colours")
         self.combo(group, "sync", "Colour pick", "mode", sc.MODES,
                    "Colourful lets the colours in a zone win over white and grey areas")
+        vivid = self.slider(group, "sync", "Vividness", "vividness", 1.0, 8.0, 0.1,
+                            lambda v: "off" if v <= 1.01 else f"{v:.1f}")
+        vivid.set_tooltip_text("How pure the light colours are, like Saturation in Govee's own app. "
+                               "Lights with white LEDs (RGBWW, e.g. the H6056) turn mixed colours white, "
+                               "so keep this high for them.")
         self.slider(group, "sync", "Saturation", "saturation", 0.0, 2.0, 0.05, lambda v: f"{v * 100:.0f} %")
         self.slider(group, "sync", "Brightness", "brightness", 0.1, 1.5, 0.05, lambda v: f"{v * 100:.0f} %")
         self.slider(group, "sync", "Black level", "black_level", 0, 60, 1, lambda v: f"{v:.0f}")

@@ -152,3 +152,29 @@ def test_many_colours_give_a_colour_not_grey():
         assert max(r, g, b) - min(r, g, b) > 150, mode
     r, g, b = sc.combine(np.array([[255, 0, 0], [0, 255, 255], [0, 255, 0], [255, 0, 255]], np.float32))[0]
     assert max(r, g, b) - min(r, g, b) > 200
+
+
+def test_vivid_colours_remove_the_white_part():
+    """Lights with white LEDs show the shared part of R, G and B as white."""
+    screen = np.array([[200, 150, 120], [120, 170, 220], [90, 150, 70], [240, 240, 240], [200, 195, 190]],
+                      np.float32)
+    out = sc.vivid_colours(screen, 4.0)
+    led = sc.led_output(out, 2.0)
+    for before, after, sent in zip(screen[:3], out[:3], led[:3]):
+        assert sent.min() < 0.05 * sent.max()                   # what the light gets: pure colour
+        assert abs(after.max() - before.max()) < 1               # same brightness
+        assert np.argmax(after) == np.argmax(before)             # same main colour
+    assert np.allclose(out[3], screen[3]) and np.allclose(out[4], screen[4])   # white/grey stay
+    assert np.allclose(sc.vivid_colours(screen, 1.0), screen)                 # 1 = off
+
+
+def test_screen_sync_sends_pure_colours_to_rgbww_bars():
+    config = Config(Path(tempfile.mkdtemp()) / "c.json")
+    src = ScreenSource(config, backend_factory=lambda name: Game())
+    src.open()
+    rects = layout_rects("bars", 12, config.sync["edge_depth"])
+    targets = [Target(Device("bars"), {}, rects, np.linspace(0, 1, 12), Smoother())]
+    for k in range(40):
+        out = src.render(targets, k / 30)["bars"]
+    led = sc.led_output(out, 2.0)
+    assert (led.min(axis=1) < 0.1 * led.max(axis=1)).all()

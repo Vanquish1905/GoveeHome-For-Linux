@@ -11,7 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 
 DEFAULTS: dict = {
     "version": CONFIG_VERSION,
@@ -35,6 +35,7 @@ DEFAULTS: dict = {
         "letterbox": True,        # ignore black bars of films
         "follow_video": True,     # fit the zones onto a video playing in a window
         "auto_boost": True,       # bring back colour when the capture is washed out
+        "vividness": 4.0,         # 1 = colours as on screen, higher = purer light colours
         "restore_on_stop": True,
     },
     "music": {
