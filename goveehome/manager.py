@@ -38,6 +38,7 @@ class DeviceManager:
         self.cloud: CloudClient | None = None
         self._stream_state: dict[str, dict] = {}
         self._ble_pending: list = []
+        self.active_engine = None       # the light show currently running, if any
         self._rescan_stop = threading.Event()
         self._rescan_thread: threading.Thread | None = None
         self._load_cache()
@@ -144,6 +145,33 @@ class DeviceManager:
         self.config.update_device_settings(device.id, name=device.name)
         self._save_cache()
         self._emit("updated", device)
+
+    # groups ----------------------------------------------------------------
+    def groups(self) -> list[dict]:
+        return list(self.config.get("groups") or [])
+
+    def group(self, group_id: str) -> dict | None:
+        return next((g for g in self.groups() if g["id"] == group_id), None)
+
+    def group_devices(self, group: dict) -> list[Device]:
+        return [d for d in (self.devices.get(i) for i in group.get("members", [])) if d is not None]
+
+    def save_group(self, name: str, members: list[str], group_id: str | None = None) -> dict:
+        import uuid
+        groups = self.groups()
+        entry = next((g for g in groups if g["id"] == group_id), None) if group_id else None
+        if entry is None:
+            entry = {"id": "group-" + uuid.uuid4().hex[:8]}
+            groups.append(entry)
+        entry["name"] = name.strip() or "Group"
+        entry["members"] = list(members)
+        self.config.set("groups", groups)
+        self._emit("groups", None)
+        return entry
+
+    def delete_group(self, group_id: str) -> None:
+        self.config.set("groups", [g for g in self.groups() if g["id"] != group_id])
+        self._emit("groups", None)
 
     # discovery -------------------------------------------------------------
     def discover(self) -> None:
@@ -313,29 +341,51 @@ class DeviceManager:
         self._emit("updated", device)
 
     def load_scenes(self, device: Device, callback: Callable[[list[dict]], None]) -> None:
+        """Cloud scenes plus the user's DIY scenes, passed to callback on a worker thread."""
         if not (self.cloud and device.cloud):
             callback([])
             return
 
         def run():
+            scenes: list[dict] = []
             try:
-                callback(self.cloud.scenes(device.sku, device.id))
+                scenes = self.cloud.scenes(device.sku, device.id)
             except CloudError as exc:
                 self._error(f"{device.display_name}: {exc}")
-                callback([])
+            try:
+                scenes += self.cloud.diy_scenes(device.sku, device.id)
+            except CloudError:
+                pass  # many lights have no DIY scenes, that's not worth a message
+            callback(scenes)
         self._pool.submit(run)
 
-    def set_scene(self, device: Device, value) -> None:
+    def _cloud(self, device: Device, fn) -> None:
         if not (self.cloud and device.cloud):
-            self._error("Scenes need the cloud API key")
+            self._error("This needs the Govee API key (Preferences)")
             return
 
         def run():
             try:
-                self.cloud.set_scene(device.sku, device.id, value)
+                fn(self.cloud)
             except CloudError as exc:
                 self._error(f"{device.display_name}: {exc}")
         self._pool.submit(run)
+
+    def set_scene(self, device: Device, scene) -> None:
+        if isinstance(scene, dict) and "instance" in scene:
+            value, instance = scene["value"], scene["instance"]
+        else:
+            value, instance = scene, "lightScene"
+        self._cloud(device, lambda c: c.set_scene(device.sku, device.id, value, instance))
+
+    def set_segment_color(self, device: Device, segments: list[int], rgb: RGB) -> None:
+        self._cloud(device, lambda c: c.segment_color(device.sku, device.id, segments, rgb))
+
+    def set_music_mode(self, device: Device, mode: int, sensitivity: int) -> None:
+        self._cloud(device, lambda c: c.music_mode(device.sku, device.id, mode, sensitivity))
+
+    def set_toggle(self, device: Device, instance: str, on: bool) -> None:
+        self._cloud(device, lambda c: c.toggle(device.sku, device.id, instance, on))
 
     # streaming (screen sync) -------------------------------------------------
     def stream_settings(self, device: Device) -> dict:
@@ -395,6 +445,33 @@ class DeviceManager:
             self.set_kelvin(device, entry["kelvin"])
         elif entry["color"]:
             self.set_color(device, entry["color"])
+
+    def identify(self, device: Device, settings: dict | None = None, seconds: float = 6.0) -> None:
+        """Show where a light starts and ends: first segment red, last blue.
+
+        Helps to get mounting and direction right for screen sync. Single
+        colour lights blink red instead.
+        """
+        settings = settings or self.stream_settings(device)
+
+        def run():
+            n = settings["segments"] if settings["streaming"] else 1
+            end = time.monotonic() + seconds
+            blink = False
+            while time.monotonic() < end:
+                if n > 1:
+                    frame = [(40, 40, 40)] * n
+                    frame[0] = (255, 0, 0)
+                    frame[-1] = (0, 0, 255)
+                    if settings.get("reverse"):
+                        frame.reverse()
+                else:
+                    blink = not blink
+                    frame = [(255, 0, 0) if blink else (0, 0, 0)]
+                self.stream(device, frame, {**settings, "gradient": False})
+                time.sleep(0.4)
+            self.stream_stop(device, restore=True)
+        threading.Thread(target=run, name="govee-identify", daemon=True).start()
 
     @property
     def streaming_devices(self) -> list[str]:

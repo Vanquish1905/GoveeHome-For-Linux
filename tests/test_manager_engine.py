@@ -110,3 +110,61 @@ def test_engine_reports_missing_lights(tmp_path):
     engine.start()
     assert done.wait(3)
     assert "No lights" in result[0]
+
+
+def test_engines_are_exclusive(tmp_path):
+    from goveehome.sync.effects import EffectSource
+    from goveehome.sync.engine import LightEngine
+
+    m = make_manager(tmp_path)
+    m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    a = LightEngine(m, lambda: EffectSource(m.config), kind="effects")
+    b = SyncEngine(m, backend_factory=lambda name: PatternCapture())
+    a.start()
+    time.sleep(0.3)
+    b.start()
+    time.sleep(0.3)
+    assert b.running and not a.running
+    b.stop()
+
+
+def test_effect_engine_applies_gamma_and_gains(tmp_path):
+    from goveehome.sync.effects import EffectSource
+    from goveehome.sync.engine import LightEngine
+
+    m = make_manager(tmp_path)
+    m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    m.config.update_device_settings("tv", gains=[1.0, 1.0, 0.5])
+    m.config.data["gamma"] = 1.0
+    m.config.section("effects").update(effect="breathe", color_a="#ffffff", speed=0.01, brightness=1.0)
+    engine = LightEngine(m, lambda: EffectSource(m.config), kind="effects")
+    engine.start()
+    time.sleep(0.4)
+    engine.stop()
+    frames = [c[2] for c in m.lan.calls if c[0] == "stream_colors"]
+    r, g, b = frames[-1][0]
+    assert r == g and abs(b - r / 2) <= 1
+
+
+def test_identify_marks_both_ends(tmp_path):
+    m = make_manager(tmp_path)
+    tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    m.identify(tv, seconds=0.3)
+    time.sleep(0.6)
+    frames = [c[2] for c in m.lan.calls if c[0] == "stream_colors"]
+    assert frames[0][0] == (255, 0, 0) and frames[0][-1] == (0, 0, 255)
+    assert ("stream_enable", "10.0.0.1", False) in m.lan.calls
+
+
+def test_groups(tmp_path):
+    m = make_manager(tmp_path)
+    m.devices["a"] = Device("a", ip="10.0.0.1")
+    m.devices["b"] = Device("b", ip="10.0.0.2")
+    events = []
+    m.subscribe(lambda e, d, msg: events.append(e))
+    g = m.save_group("Desk", ["a", "gone"])
+    assert [d.id for d in m.group_devices(g)] == ["a"]
+    m.save_group("Desk area", ["a", "b"], g["id"])
+    assert len(m.groups()) == 1 and m.group(g["id"])["name"] == "Desk area"
+    m.delete_group(g["id"])
+    assert m.groups() == [] and events.count("groups") == 3

@@ -17,7 +17,13 @@ from collections.abc import Callable
 
 import numpy as np
 
-from goveehome.capture.base import FRAME_HEIGHT, FRAME_WIDTH, CaptureBackend, CaptureError
+from goveehome.capture.base import FRAME_HEIGHT, FRAME_WIDTH, CaptureBackend, CaptureError, downscale
+
+# Plain bilinear scaling straight to 160x90 samples about 1% of a 4K screen
+# and gives noisy, wrong colours. Lanczos takes every pixel into account when
+# shrinking; it goes to 4x the target and the last step is an exact average.
+SCALE_WIDTH = FRAME_WIDTH * 4
+SCALE_HEIGHT = FRAME_HEIGHT * 4
 
 log = logging.getLogger(__name__)
 
@@ -154,7 +160,7 @@ class PortalCapture(CaptureBackend):
         self._fd, node_id = self._negotiate()
         desc = (
             f"pipewiresrc name=src fd={self._fd} path={node_id} do-timestamp=true ! "
-            f"videoscale ! video/x-raw,width={FRAME_WIDTH},height={FRAME_HEIGHT} ! "
+            f"videoscale method=lanczos ! video/x-raw,width={SCALE_WIDTH},height={SCALE_HEIGHT} ! "
             f"videoconvert ! video/x-raw,format=RGB ! "
             f"appsink name=sink max-buffers=1 drop=true sync=false"
         )
@@ -181,7 +187,7 @@ class PortalCapture(CaptureBackend):
         _, _, Gst = _gi()
         # PipeWire only delivers frames when the screen changes, so a static
         # desktop simply keeps the last frame.
-        sample = self._sink.emit("try-pull-sample", 200 * Gst.MSECOND)
+        sample = self._sink.emit("try-pull-sample", 100 * Gst.MSECOND)
         if sample is None:
             self._check_bus()
             if self._last is None:
@@ -194,7 +200,7 @@ class PortalCapture(CaptureBackend):
         data = buf.extract_dup(0, buf.get_size())
         stride = len(data) // height
         rows = np.frombuffer(data, dtype=np.uint8).reshape(height, stride)
-        self._last = rows[:, : width * 3].reshape(height, width, 3).copy()
+        self._last = downscale(rows[:, : width * 3].reshape(height, width, 3))
         return self._last
 
     def close(self) -> None:

@@ -51,3 +51,13 @@ def test_auto_without_display(monkeypatch):
     assert capture.available_backends() == ["pattern"]
     with pytest.raises(capture.CaptureError):
         capture.auto_backend()
+
+
+def test_downscale_is_a_real_area_average():
+    """Fine detail (text, 1px patterns) must average out, not alias."""
+    rng = np.random.default_rng(3)
+    big = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    big[:, :960] = (60, 0, 0)
+    big[rng.random((1080, 1920)) < 0.2] = 255
+    truth = big.astype(float).reshape(90, 12, 160, 12, 3).mean(axis=(1, 3))
+    assert np.abs(downscale(big).astype(float) - truth).mean() < 2

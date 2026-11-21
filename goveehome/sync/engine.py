@@ -1,4 +1,11 @@
-"""The screen sync loop: capture -> zones -> colours -> lights."""
+"""The light show loop: a source renders colours, the engine sends them.
+
+Sources are the screen (screen sync), the sound card (music sync) and the
+built-in effects. They all produce sRGB colours per light and segment; the
+engine takes care of smoothing, gamma / white balance, rate limits per
+transport, previews and putting the lights back when it stops. Only one
+engine runs at a time.
+"""
 
 from __future__ import annotations
 
@@ -15,13 +22,19 @@ from goveehome.capture import CaptureError
 from goveehome.manager import DeviceManager
 from goveehome.models import Device
 from goveehome.sync import colors as sc
+from goveehome.sync.letterbox import BarDetector, crop, map_rect
 from goveehome.sync.zones import Rect, layout_rects
 
 log = logging.getLogger(__name__)
 
-PREVIEW_INTERVAL = 1 / 12   # how often the UI gets a frame
+PREVIEW_INTERVAL = 1 / 15   # how often the UI gets a frame
 MAX_FPS_COLORWC = 15        # plain colour commands; lights choke beyond this
 MAX_FPS_BLE = 10
+KEEPALIVE = 1.0             # resend unchanged colours this often
+
+
+class SourceError(Exception):
+    pass
 
 
 @dataclass
@@ -29,33 +42,120 @@ class Target:
     device: Device
     settings: dict
     rects: list[Rect]
+    positions: np.ndarray            # 0..1 along the light, already reversed if needed
     smoother: sc.Smoother
+    gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
     last_sent: float = 0.0
     last_colors: list = field(default_factory=list)
+    display: list = field(default_factory=list)   # what the preview shows
+
+    @property
+    def segments(self) -> int:
+        return len(self.rects)
 
 
 @dataclass
 class Preview:
-    frame: np.ndarray
+    frame: np.ndarray | None
     targets: dict[str, tuple[list[Rect], list[tuple[int, int, int]]]]
     fps: float
     backend: str
 
 
-class SyncEngine:
-    def __init__(self, manager: DeviceManager,
+class Source:
+    kind = "sync"        # device setting that decides whether a light joins in
+    label = ""
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def fps(self) -> int:
+        return 30
+
+    def smoothing(self) -> float:
+        return 0.0
+
+    def render(self, targets: list[Target], now: float) -> dict[str, np.ndarray]:
+        raise NotImplementedError
+
+    def preview(self) -> np.ndarray | None:
+        return None
+
+    def preview_rects(self, target: Target) -> list[Rect]:
+        return []
+
+
+class ScreenSource(Source):
+    kind = "sync"
+
+    def __init__(self, config, backend_factory: Callable[[str], capture.CaptureBackend] | None = None):
+        self.config = config
+        self._factory = backend_factory or (lambda name: capture.create(name, config))
+        self.backend: capture.CaptureBackend | None = None
+        self.detector = BarDetector()
+        self.box = (0, 0, 0, 0)
+        self.frame: np.ndarray | None = None
+
+    def open(self) -> None:
+        self.backend = self._factory(self.config.sync.get("backend", "auto"))
+        self.label = self.backend.label
+        self.backend.open()
+
+    def close(self) -> None:
+        if self.backend:
+            self.backend.close()
+
+    def fps(self) -> int:
+        return int(self.config.sync.get("fps", 30))
+
+    def smoothing(self) -> float:
+        return float(self.config.sync.get("smoothing", 0.04))
+
+    def render(self, targets, now):
+        frame = self.backend.grab()
+        self.frame = frame
+        sync = self.config.sync
+        if sync.get("letterbox", True):
+            self.box = self.detector(frame)
+            work = crop(frame, self.box)
+        else:
+            self.box = (0, 0, 0, 0)
+            work = frame
+        analyzer = sc.FrameAnalyzer(work)
+        mode = sync.get("mode", "accurate")
+        saturation = float(sync.get("saturation", 1.15))
+        brightness = float(sync.get("brightness", 1.0))
+        black = float(sync.get("black_level", 8))
+        return {t.device.id: sc.adjust(analyzer.zones(t.rects, mode), saturation, brightness, black)
+                for t in targets}
+
+    def preview(self):
+        return self.frame
+
+    def preview_rects(self, target):
+        if self.frame is None or self.box == (0, 0, 0, 0):
+            return target.rects
+        return [map_rect(r, self.box, self.frame.shape) for r in target.rects]
+
+
+class LightEngine:
+    def __init__(self, manager: DeviceManager, source_factory: Callable[[], Source],
                  on_preview: Callable[[Preview], None] | None = None,
                  on_state: Callable[[bool, str | None], None] | None = None,
-                 backend_factory: Callable[[str], capture.CaptureBackend] | None = None):
+                 kind: str = "sync"):
         self.manager = manager
         self.config = manager.config
+        self.source_factory = source_factory
         self.on_preview = on_preview
         self.on_state = on_state
-        self._factory = backend_factory or (lambda name: capture.create(name, self.config))
+        self.kind = kind
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._reload = threading.Event()
-        self.device_ids: list[str] | None = None   # None = every device with sync enabled
+        self.device_ids: list[str] | None = None   # None = every light that has this show enabled
         self.backend_name = ""
         self.fps = 0.0
 
@@ -66,9 +166,13 @@ class SyncEngine:
     def start(self, device_ids: list[str] | None = None) -> None:
         if self.running:
             return
+        other = getattr(self.manager, "active_engine", None)
+        if other is not None and other is not self and other.running:
+            other.stop(wait=True)
+        self.manager.active_engine = self
         self.device_ids = device_ids
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="govee-sync", daemon=True)
+        self._thread = threading.Thread(target=self._run, name=f"govee-{self.kind}", daemon=True)
         self._thread.start()
 
     def stop(self, wait: bool = True) -> None:
@@ -77,14 +181,13 @@ class SyncEngine:
             self._thread.join(timeout=5)
 
     def reload(self) -> None:
-        """Pick up changed device settings (layout, segments, ...) on the next frame."""
+        """Pick up changed light settings (layout, segments, ...) on the next frame."""
         self._reload.set()
 
     # internals -----------------------------------------------------------------
-    def _targets(self) -> list[Target]:
+    def _targets(self, kind: str) -> list[Target]:
         out = []
-        depth = float(self.config.sync.get("edge_depth", 0.18))
-        smoothing = float(self.config.sync.get("smoothing", 0.5))
+        depth = float(self.config.sync.get("edge_depth", 0.15))
         for device in self.manager.list():
             if not device.can_stream:
                 continue
@@ -92,10 +195,15 @@ class SyncEngine:
             if self.device_ids is not None:
                 if device.id not in self.device_ids:
                     continue
-            elif not settings.get("sync", True):
+            elif not settings.get(kind, True):
                 continue
             rects = layout_rects(settings["layout"], settings["segments"], depth, settings["reverse"])
-            out.append(Target(device, settings, rects, sc.Smoother(smoothing)))
+            n = len(rects)
+            positions = np.linspace(0.0, 1.0, n) if n > 1 else np.array([0.5])
+            if settings["reverse"]:
+                positions = positions[::-1].copy()
+            gains = tuple(float(g) for g in (settings.get("gains") or (1, 1, 1))[:3])
+            out.append(Target(device, settings, rects, positions, sc.Smoother(), gains))
         return out
 
     def _notify(self, running: bool, message: str | None = None) -> None:
@@ -106,19 +214,22 @@ class SyncEngine:
                 log.exception("on_state failed")
 
     def _run(self) -> None:
-        name = self.config.sync.get("backend", "auto")
         try:
-            backend = self._factory(name)
-            self.backend_name = backend.label
-            backend.open()
-        except CaptureError as exc:
+            source = self.source_factory()
+            source.open()
+        except (CaptureError, SourceError) as exc:
             self._notify(False, str(exc))
             return
-        targets = self._targets()
+        except Exception as exc:
+            log.exception("could not start %s", self.kind)
+            self._notify(False, f"Could not start: {exc}")
+            return
+        self.backend_name = source.label
+        targets = self._targets(source.kind)
         if not targets:
-            backend.close()
-            self._notify(False, "No lights selected for screen sync. Lights need LAN control "
-                                "or Bluetooth; cloud-only lights are too slow.")
+            source.close()
+            self._notify(False, "No lights selected. Lights need LAN control or Bluetooth for "
+                                "light shows; cloud-only lights are too slow.")
             return
         self._notify(True, None)
         error: str | None = None
@@ -127,63 +238,72 @@ class SyncEngine:
         try:
             while not self._stop.is_set():
                 started = time.monotonic()
-                sync = self.config.sync
-                fps = max(1, min(60, int(sync.get("fps", 20))))
                 if self._reload.is_set():
                     self._reload.clear()
                     for t in targets:
                         self.manager.stream_stop(t.device, restore=False)
-                    targets = self._targets()
-                frame = backend.grab()
-                self._process(frame, targets, sync, started)
-                frame_times.append(started)
-                frame_times = [t for t in frame_times if started - t < 2.0]
-                self.fps = (len(frame_times) - 1) / max(1e-3, started - frame_times[0]) if len(frame_times) > 1 else 0.0
-                if self.on_preview and started - last_preview >= PREVIEW_INTERVAL:
-                    last_preview = started
+                    targets = self._targets(source.kind)
+                outputs = source.render(targets, started)
+                now = time.monotonic()
+                self._send(targets, outputs, source, now)
+                frame_times.append(now)
+                while frame_times and now - frame_times[0] > 2.0:
+                    frame_times.pop(0)
+                if len(frame_times) > 1:
+                    self.fps = (len(frame_times) - 1) / max(1e-3, frame_times[-1] - frame_times[0])
+                if self.on_preview and now - last_preview >= PREVIEW_INTERVAL:
+                    last_preview = now
                     self.on_preview(Preview(
-                        frame=frame,
-                        targets={t.device.id: (t.rects, t.last_colors) for t in targets},
+                        frame=source.preview(),
+                        targets={t.device.id: (source.preview_rects(t), t.display) for t in targets},
                         fps=self.fps,
                         backend=self.backend_name,
                     ))
+                fps = max(1, min(60, source.fps()))
                 delay = 1.0 / fps - (time.monotonic() - started)
                 if delay > 0:
                     self._stop.wait(delay)
-        except CaptureError as exc:
+        except (CaptureError, SourceError) as exc:
             error = str(exc)
         except Exception as exc:  # keep the lights in a sane state whatever happens
-            log.exception("sync loop crashed")
-            error = f"Screen sync stopped: {exc}"
+            log.exception("light show crashed")
+            error = f"Stopped: {exc}"
         finally:
             restore = bool(self.config.sync.get("restore_on_stop", True))
             for t in targets:
                 self.manager.stream_stop(t.device, restore=restore)
-            backend.close()
+            source.close()
             self.fps = 0.0
             self._notify(False, error)
 
-    def _process(self, frame: np.ndarray, targets: list[Target], sync: dict, now: float) -> None:
-        mode = sync.get("mode", "vivid")
-        saturation = float(sync.get("saturation", 1.3))
-        brightness = float(sync.get("brightness", 1.0))
-        black = float(sync.get("black_level", 6))
-        smoothing = float(sync.get("smoothing", 0.5))
+    def _send(self, targets: list[Target], outputs: dict, source: Source, now: float) -> None:
+        gamma = float(self.config.get("gamma", 2.0))
+        tau = source.smoothing()
         for t in targets:
-            t.smoother.smoothing = smoothing
-            raw = sc.extract(frame, t.rects, mode)
-            adjusted = sc.adjust(raw, saturation, brightness, black)
-            smoothed = t.smoother(adjusted)
-            colors = sc.to_rgb_list(smoothed)
+            colors = outputs.get(t.device.id)
+            if colors is None:
+                continue
+            t.smoother.smoothing = tau
+            smoothed = t.smoother(colors, now)
+            t.display = sc.to_rgb_list(smoothed)
+            sent = sc.to_rgb_list(sc.led_output(smoothed, gamma, t.gains))
             limit = None
             if not t.settings["streaming"]:
                 limit = MAX_FPS_BLE if not t.device.ip else MAX_FPS_COLORWC
             if limit and now - t.last_sent < 1.0 / limit:
                 continue
-            # skip identical frames but still send now and then so the light
-            # doesn't time out of streaming mode
-            if colors == t.last_colors and now - t.last_sent < 1.0:
+            # skip identical frames but resend now and then so the light stays in streaming mode
+            if sent == t.last_colors and now - t.last_sent < KEEPALIVE:
                 continue
             t.last_sent = now
-            t.last_colors = colors
-            self.manager.stream(t.device, colors, t.settings)
+            t.last_colors = sent
+            self.manager.stream(t.device, sent, t.settings)
+
+
+class SyncEngine(LightEngine):
+    """Screen sync."""
+
+    def __init__(self, manager: DeviceManager, on_preview=None, on_state=None,
+                 backend_factory: Callable[[str], capture.CaptureBackend] | None = None):
+        super().__init__(manager, lambda: ScreenSource(manager.config, backend_factory),
+                         on_preview, on_state, kind="sync")

@@ -11,24 +11,56 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+CONFIG_VERSION = 2
+
 DEFAULTS: dict = {
+    "version": CONFIG_VERSION,
     "cloud_api_key": "",
     "extra_hosts": [],            # IPs to scan directly when multicast is blocked
     "bluetooth": False,
     "rescan_interval": 30,        # seconds, 0 disables background rescans
     "devices": {},                # device id -> cached Device.to_cache()
     "device_settings": {},        # device id -> per device overrides, see device_settings()
+    "gamma": 2.0,                 # LED gamma used by all light shows, 1.0 = off
     "sync": {
         "backend": "auto",
-        "fps": 20,
-        "smoothing": 0.5,         # 0 = instant, 1 = very slow
-        "saturation": 1.3,
+        "fps": 30,
+        "smoothing": 0.04,        # seconds, 0 = instant
+        "saturation": 1.15,
         "brightness": 1.0,
-        "mode": "vivid",          # "average" or "vivid"
-        "edge_depth": 0.18,       # fraction of the screen used for edge zones
-        "monitor": 0,             # 0 = all monitors / whatever the portal picked
-        "black_level": 6,         # colours darker than this are sent as black
+        "mode": "accurate",       # see sync.colors.MODES
+        "edge_depth": 0.15,       # fraction of the screen used for edge zones
+        "monitor": 1,             # X11 only: 0 = all monitors, 1.. = one monitor
+        "black_level": 8,         # colours darker than this are sent as black
+        "letterbox": True,        # ignore black bars of films
         "restore_on_stop": True,
+    },
+    "music": {
+        "mode": "spectrum",
+        "palette": "rainbow",
+        "sensitivity": 1.0,
+        "brightness": 1.0,
+        "fps": 40,
+    },
+    "effects": {
+        "effect": "rainbow",
+        "speed": 1.0,
+        "brightness": 1.0,
+        "color_a": "#ff5a00",
+        "color_b": "#0050ff",
+        "fps": 30,
+    },
+    "groups": [],                 # [{"id": ..., "name": ..., "members": [device ids]}]
+    "favorite_colors": [],        # ["#rrggbb", ...]
+    "background": {
+        "keep_running": True,     # keep a running light show going when the window closes
+        "autostart": False,
+        "resume_show": False,     # start the last light show again on launch
+        "last_show": "",
+    },
+    "power": {
+        "off_on_sleep": False,
+        "on_on_wake": False,
     },
     "portal_restore_token": "",
 }
@@ -36,12 +68,25 @@ DEFAULTS: dict = {
 DEVICE_DEFAULTS: dict = {
     "name": "",
     "sync": True,                 # take part in screen sync
+    "music": True,                # take part in music sync
+    "effects": True,              # take part in effects
     "segments": None,             # None = model default
     "streaming": None,            # None = model default
     "layout": None,               # None = model default
     "reverse": False,
     "gradient": True,
+    "gains": [1.0, 1.0, 1.0],     # white balance for light shows
 }
+
+
+def _migrate(raw: dict) -> dict:
+    if raw.get("version", 1) < 2 and isinstance(raw.get("sync"), dict):
+        # 1.0 used a per-frame smoothing factor and sent colours without gamma;
+        # its tuning values don't carry over, keep only the structural ones.
+        old = raw["sync"]
+        raw["sync"] = {k: old[k] for k in ("backend", "restore_on_stop") if k in old}
+    raw["version"] = CONFIG_VERSION
+    return raw
 
 
 def config_dir() -> Path:
@@ -75,7 +120,7 @@ class Config:
             except (OSError, ValueError) as exc:
                 log.warning("Ignoring unreadable config %s: %s", self.path, exc)
                 raw = {}
-            self.data = _merge(DEFAULTS, raw)
+            self.data = _merge(DEFAULTS, _migrate(raw))
 
     def save(self) -> None:
         with self._lock:
@@ -101,6 +146,15 @@ class Config:
     def sync(self) -> dict:
         return self.data["sync"]
 
+    def section(self, name: str) -> dict:
+        return self.data[name]
+
+    def set_in(self, section: str, key: str, value, save: bool = True) -> None:
+        with self._lock:
+            self.data[section][key] = value
+            if save:
+                self.save()
+
     def set_sync(self, key: str, value, save: bool = True) -> None:
         with self._lock:
             self.data["sync"][key] = value
@@ -109,7 +163,7 @@ class Config:
 
     def device_settings(self, device_id: str) -> dict:
         stored = self.data["device_settings"].get(device_id, {})
-        return {**DEVICE_DEFAULTS, **stored}
+        return copy.deepcopy({**DEVICE_DEFAULTS, **stored})
 
     def update_device_settings(self, device_id: str, save: bool = True, **changes) -> None:
         with self._lock:
