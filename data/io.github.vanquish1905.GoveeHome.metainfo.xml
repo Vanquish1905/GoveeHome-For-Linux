@@ -17,8 +17,8 @@
     <ul>
       <li>Power, brightness, colour, white temperature, saved colours and sleep timers</li>
       <li>Screen sync: lights follow the colours on your screen, per segment on DreamView capable lights</li>
-      <li>Music sync from whatever the PC plays, no microphone needed</li>
-      <li>Built-in effects that run without the cloud</li>
+      <li>Music sync from whatever the PC plays, no microphone needed, with 25 palettes or your own colours</li>
+      <li>37 built-in effects that run without the cloud</li>
       <li>Groups, and lights that follow the computer to sleep and back</li>
       <li>Works on Wayland (GNOME, KDE Plasma) and X11</li>
       <li>Optional Govee cloud API key for lights without LAN control and for scenes</li>
@@ -36,6 +36,13 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.3.0" date="2026-11-21">
+      <description>
+        <p>Faster screen capture without flashing, light bar support (H6056 and others),
+        choosing the lights for each light show, 25 music palettes with your own colours,
+        and 37 effects with more options.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-21">
       <description>
         <p>Built-in updater: GoveeHome checks GitHub for new versions and installs them.</p>

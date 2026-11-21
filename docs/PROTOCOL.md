@@ -67,8 +67,14 @@ BB 00 LEN B0 GRAD N  R1 G1 B1  R2 G2 B2 ...  XOR
 - `XOR` = all previous bytes XORed together
 
 While streaming is on, the light ignores its own effects. It drops out of streaming mode by
-itself after a while without frames, so the app repeats the "on" frame every 10 seconds and
-sends a frame at least once a second even when the picture doesn't change.
+itself after a while without frames, so the app sends a frame at least once a second even
+when the picture doesn't change. The "on" frame is sent once at the start and again only
+after a pause of more than three seconds; repeating it while frames flow makes some lights
+blink.
+
+Light bar pairs (H6046, H6047, H6056) take the colours for both bars in one frame: the
+first half of the colours is one bar, the second half the other, each counted from the top.
+The H6056 has 12 segments (6 per bar) even though the cloud API reports 15.
 
 ## Bluetooth LE
 

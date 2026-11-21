@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.2.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.3.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -137,23 +137,42 @@ like `ihoment_H6199_XXXX`.
 
 Open a light and scroll to **Light shows**:
 
-- **Use for screen sync / music / effects**: whether this light joins in.
+- **Use for screen sync / music / effects**: whether this light joins in. You can also pick
+  the lights right on each light show's page (see below).
 - **Segment streaming**: sends one colour per segment. Turned on automatically for models
   known to support it (DreamView TV backlights, light bars, RGBIC strips, Glide panels and
   others). If your light has DreamView in the Govee app, it very likely works; just try it.
   When it's off, the light gets one colour for its zone.
 - **Segments**: how many separately coloured pieces the light has. The default comes from
-  the model. More isn't better if the light doesn't have them.
-- **Mounting**: where the light gets its colour from:
+  the model (or your Govee account if you added an API key).
+- **Mounting**: where the light gets its colours from:
   - *Whole screen*: bulbs and lamps around the room
   - *Left, top, right (TV backlight)*: a strip running up the left side of the TV or
     monitor, across the top and down the right side
   - *All four edges*: the same, plus the bottom
   - *Top edge*, *Bottom edge*, *Left edge*, *Right edge*: a strip along one side
-  - *Columns*: light bars or panels standing next to the screen
-- **Check the direction → Identify**: lights up red where the mounting starts (bottom left
-  for a TV backlight) and blue where it ends, for a few seconds. If red and blue are on the
-  wrong sides, turn on **Reverse direction**.
+  - *Columns*: panels or a strip spread across the wall behind the screen
+  - *Two bars, left and right of the screen*: light bar pairs like the H6046, H6047 and
+    H6056 standing next to the monitor. *Right and left* is the same with the bars the other
+    way round, *above and below* for bars lying flat
+- **Reverse direction**: the light runs the other way. For light bars, each bar is flipped
+  upside down and stays on its side.
+- **Check the mounting → Identify**: shows test colours for a few seconds. If everything is
+  set up right, the light is **red on the left** side of the screen and **blue on the
+  right**, both bright at the top and dim at the bottom, **green** along the top and
+  **yellow** along the bottom. If the colours are on the wrong side, try the other bar order
+  or *Reverse direction* and press *Identify* again.
+
+**H6056 Flow Plus light bars:** the app sets them up as 12 segments (6 per bar, the cloud
+says 15 but only 12 exist) with *Two bars, left and right*. Stand the bars next to the
+monitor, press *Identify*, and if red shows on the right bar choose *Two bars, right and
+left*. If bright and dim are upside down, turn on *Reverse direction*.
+
+### Choosing the lights
+
+Every light show page (Screen sync, Music, Effects) has a **Lights** list right below the
+preview. Switch each light on or off there, or use **All**, **None** or **Group** (takes the
+lights of one of your groups). Changes apply while the show runs.
 
 ### Start it
 
@@ -166,6 +185,9 @@ runs; that's expected. The choice is remembered, so the dialog doesn't come back
 
 On X11 there's no dialog. With more than one monitor, pick the right one under
 *Capture → Monitor*.
+
+The status line under the preview shows how many updates per second go out and how long a
+frame takes from capture to the light command.
 
 The preview shows what the app sees with each light's zones drawn on top. Check that the
 colours on the light match the zones. Changes to mounting, direction and all the sliders
@@ -203,15 +225,31 @@ It listens to the output of your speakers or headphones directly, so there's no 
 involved and room noise doesn't matter. Modes:
 
 - *Spectrum*: bass at one end of the light, treble at the other. Best on segmented lights.
+- *Mirrored spectrum*: bass in the middle, treble at both ends. Nice on light bars.
 - *Energy*: colours drift with the music, brightness follows the volume.
 - *Beat pulse*: a new colour flashes on every beat and fades out.
+- *Bass glow*: the whole light glows with the bass.
 - *Rolling*: colours run along the light, faster when it's loud.
 
-*Colours* picks the palette, *Sensitivity* how strongly it reacts.
+**Colours**: pick one of 25 palettes (rainbow, warm, cool, neon, fire, ocean, forest,
+sunset, aurora, pastel, candy, cyberpunk, vaporwave, lava, ice, gold, love, purple rain,
+tropical, retro, club, Christmas, Halloween, white) or **Your colours**: up to six colours
+you choose under *Your colours* with the + and − buttons. Changing one of them switches to
+your palette. *Sensitivity* sets how strongly it reacts.
 
-**Effects** (sidebar, Ctrl+3) are animated scenes rendered on the PC: rainbow, colour cycle,
-gradient and breathe in your own colours, candle, fire, aurora, ocean, sunset, forest,
-starry night, party and police. Click one to start it; speed and brightness change live.
+**Effects** (sidebar, Ctrl+3) are 37 animated scenes rendered on the PC, in four groups:
+
+- *Colourful*: rainbow, colour cycle, rainbow pulse, plasma, pastel dream
+- *Your colours*: solid, gradient, three colours, breathe, colour fade, wave, chase, colour
+  wipe, meteor, scanner, heartbeat, strobe
+- *Nature*: candle, fire, lava lamp, aurora, ocean, underwater, sunset, sunrise alarm (slowly
+  goes from dark to warm daylight over 10 minutes at speed 1), forest, starry night,
+  thunderstorm, snowfall, digital rain
+- *Party and seasons*: party, disco, twinkle, fireworks, police, Christmas, Halloween
+
+Click one to start it. **Options** apply live: speed, brightness, size (for moving things
+like meteor, scanner and waves), reverse direction, and up to three colours for the effects
+that use your colours.
 
 Only one light show runs at a time. Starting another one stops the current one; Ctrl+.
 stops all of them.
@@ -327,7 +365,7 @@ govee2mqtt running on the same machine. Stop it, or run GoveeHome on a different
 **Screen sync: "No screen capture method available"**
 
 - Wayland: install the PipeWire GStreamer plugin: `sudo dnf install pipewire-gstreamer`
-- X11: install mss: `~/.local/share/goveehome/venv/bin/pip install mss`
+- X11: install the GStreamer good plugins: `sudo dnf install gstreamer1-plugins-good`
 - Sway, Hyprland and other wlroots compositors without a working screencast portal:
   `sudo dnf install grim` and pick *grim (wlroots)* as the source.
 
@@ -343,9 +381,10 @@ Turn on *Segment streaming* for it and set the number of segments. If it still s
 colour, the model doesn't support the streaming protocol; turn streaming off again so it
 gets the plain colour command, which works on every light.
 
-**Screen sync: colours are mirrored or rotated**
+**Screen sync: colours are mirrored or on the wrong side**
 
-Flip *Reverse direction*, or pick a different mounting.
+Press *Identify* on the light's page and follow what it shows (red = left, blue = right,
+green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it matches.
 
 **Screen sync: colours don't match the screen**
 
@@ -353,8 +392,18 @@ Go through [Getting the colours to match](#getting-the-colours-to-match). With m
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
 
+**Lights flash or flicker at random**
+
+- Update to 1.3.0 or newer. Older versions re-sent the "streaming on" command every 10
+  seconds, which makes some lights blink, and passed on the odd empty frame from screen
+  capture.
+- If a dark film flickers at the top and bottom, turn off *Ignore black bars*.
+- Raise *Smoothing* a little (60–100 ms) if the picture itself is very busy.
+
 **Colours lag behind**
 
+- Update to 1.3.0 or newer: capture can't build up a queue of old frames any more, and on X11
+  it uses shared memory, which is several times faster on big screens.
 - Lower *Smoothing*, down to 0 if you like.
 - Use *Segment streaming* where the light supports it. Plain colour commands are capped at
   15 a second and some lights fade into each new colour, which looks slower.
