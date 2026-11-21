@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 Listener = Callable[[str, "Device | None", "str | None"], None]
 
-STREAM_REFRESH = 10.0   # seconds between repeated "streaming on" packets
+STREAM_GAP = 3.0   # resend "streaming on" only after this long without frames
 
 
 class DeviceManager:
@@ -392,7 +392,7 @@ class DeviceManager:
         settings = self.config.device_settings(device.id)
         info = skus.lookup(device.sku)
         if settings["segments"] is None:
-            settings["segments"] = info.segments
+            settings["segments"] = self.default_segments(device)
         if settings["streaming"] is None:
             settings["streaming"] = info.streaming
         if not settings["layout"]:
@@ -403,25 +403,38 @@ class DeviceManager:
             settings["segments"] = 1
         return settings
 
+    @staticmethod
+    def default_segments(device: Device) -> int:
+        from goveehome.protocol.cloud import segment_count
+        return skus.segment_count(device.sku, segment_count(device.cloud_capabilities))
+
     def stream(self, device: Device, colors: Sequence[RGB], settings: dict | None = None) -> None:
         settings = settings or self.stream_settings(device)
         now = time.monotonic()
         entry = self._stream_state.get(device.id)
         if entry is None:
             entry = self._stream_state[device.id] = {
-                "enabled_at": -STREAM_REFRESH,
+                "last_frame": None,
                 "color": device.state.color,
                 "kelvin": device.state.kelvin,
             }
             if device.state.on is False:
                 self.set_power(device, True)
         if settings["streaming"] and device.ip:
-            if now - entry["enabled_at"] >= STREAM_REFRESH:
+            # Switch streaming on once. Repeating it while frames flow makes
+            # some lights blink; only after a pause (the light may have left
+            # streaming mode by itself) is it sent again.
+            last = entry["last_frame"]
+            if last is None or now - last > STREAM_GAP:
                 self.lan.stream_enable(device.ip, True)
-                entry["enabled_at"] = now
+            entry["last_frame"] = now
             self.lan.stream_colors(device.ip, colors, settings.get("gradient", True))
             return
         avg = tuple(int(sum(c[i] for c in colors) / len(colors)) for i in range(3))
+        if avg == (0, 0, 0):
+            # some lights ignore an all-zero colour and keep the old one
+            avg = (1, 1, 1)
+        entry["last_frame"] = now
         if device.ip:
             self.lan.color(device.ip, avg)
         elif device.ble_address:
@@ -446,29 +459,53 @@ class DeviceManager:
         elif entry["color"]:
             self.set_color(device, entry["color"])
 
-    def identify(self, device: Device, settings: dict | None = None, seconds: float = 6.0) -> None:
-        """Show where a light starts and ends: first segment red, last blue.
+    @staticmethod
+    def identify_colors(settings: dict) -> list[RGB]:
+        """Test colours that show whether the mounting matches the screen.
 
-        Helps to get mounting and direction right for screen sync. Single
-        colour lights blink red instead.
+        Every segment gets the colour of the screen area it takes its light
+        from: red on the left, blue on the right (bright in the upper half, dim
+        in the lower half), green at the top, yellow at the bottom. With a
+        correct setup the light shows exactly that.
         """
+        from goveehome.sync.zones import layout_rects
+        n = settings["segments"] if settings["streaming"] else 1
+        rects = layout_rects(settings["layout"] or "whole", n, 0.15, settings.get("reverse", False))
+        if n == 1 or all(r == (0.0, 0.0, 1.0, 1.0) for r in rects):
+            frame = [(40, 40, 40)] * n
+            frame[0] = (255, 0, 0)
+            if n > 1:
+                frame[-1] = (0, 0, 255)
+            return frame
+        out = []
+        for x0, y0, x1, y1 in rects:
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            if cy < 0.25 and 0.25 < cx < 0.75:
+                out.append((0, 255, 0))
+            elif cy > 0.75 and 0.25 < cx < 0.75:
+                out.append((255, 200, 0))
+            else:
+                # sides: bright in the upper half, dim in the lower half
+                level = 1.0 if cy < 0.5 else 0.15
+                base = (255, 0, 0) if cx < 0.5 else (0, 0, 255)
+                out.append(tuple(int(c * level) for c in base))
+        return out
+
+    def identify(self, device: Device, settings: dict | None = None, seconds: float = 8.0) -> None:
+        """Show the test colours above for a few seconds, then restore the light."""
         settings = settings or self.stream_settings(device)
 
         def run():
-            n = settings["segments"] if settings["streaming"] else 1
+            frame = self.identify_colors(settings)
             end = time.monotonic() + seconds
             blink = False
             while time.monotonic() < end:
-                if n > 1:
-                    frame = [(40, 40, 40)] * n
-                    frame[0] = (255, 0, 0)
-                    frame[-1] = (0, 0, 255)
-                    if settings.get("reverse"):
-                        frame.reverse()
-                else:
+                if len(frame) == 1:
                     blink = not blink
-                    frame = [(255, 0, 0) if blink else (0, 0, 0)]
-                self.stream(device, frame, {**settings, "gradient": False})
+                    out = [(255, 0, 0) if blink else (1, 1, 1)]
+                else:
+                    out = frame
+                self.stream(device, out, {**settings, "gradient": False})
                 time.sleep(0.4)
             self.stream_stop(device, restore=True)
         threading.Thread(target=run, name="govee-identify", daemon=True).start()

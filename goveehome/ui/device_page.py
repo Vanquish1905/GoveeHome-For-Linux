@@ -58,7 +58,7 @@ class DevicePage(ControlPage):
 
     def _build_cloud_extras(self):
         caps = self.device.cloud_capabilities
-        count = cloud.segment_count(caps)
+        count = skus.segment_count(self.device.sku, cloud.segment_count(caps))
         if count > 1 and self.manager.cloud:
             self._segment_buttons: list[Gtk.ToggleButton] = []
             flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
@@ -149,7 +149,6 @@ class DevicePage(ControlPage):
     # light shows ------------------------------------------------------------------
     def _build_shows(self):
         settings = self.manager.stream_settings(self.device)
-        info = skus.lookup(self.device.sku)
         group = Adw.PreferencesGroup(title="Light shows")
         if not self.device.can_stream:
             group.set_description("This light is only reachable through the cloud, which is too slow "
@@ -171,7 +170,7 @@ class DevicePage(ControlPage):
         self.segments_row = Adw.SpinRow.new_with_range(1, 84, 1)
         self.segments_row.set_title("Segments")
         stored = self.app.config.device_settings(self.device.id)["segments"]
-        self.segments_row.set_value(stored or info.segments)
+        self.segments_row.set_value(stored or self.manager.default_segments(self.device))
         self.segments_row.connect("notify::value", lambda r, _p: self._save_sync(segments=int(r.get_value())))
         group.add(self.segments_row)
 
@@ -189,9 +188,12 @@ class DevicePage(ControlPage):
         self.gradient_row.connect("notify::active", lambda r, _p: self._save_sync(gradient=r.get_active()))
         group.add(self.gradient_row)
 
-        identify = Adw.ActionRow(title="Check the direction",
-                                 subtitle="Red lights up where the mounting starts (bottom left for a TV "
-                                          "backlight), blue where it ends.")
+        identify = Adw.ActionRow(title="Check the mounting",
+                                 subtitle="Shows test colours for a few seconds. If everything is right, the "
+                                          "light is red on the left side of the screen and blue on the right, "
+                                          "both bright at the top and dim at the bottom, green along the top "
+                                          "and yellow along the bottom. Otherwise change Mounting or Reverse "
+                                          "direction and try again.")
         btn = Gtk.Button(label="Identify", valign=Gtk.Align.CENTER, sensitive=self.device.can_stream)
         btn.add_css_class("flat")
         btn.connect("clicked", lambda *_: self.manager.identify(self.device))

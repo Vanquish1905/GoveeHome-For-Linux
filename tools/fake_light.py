@@ -20,7 +20,7 @@ import struct
 import threading
 
 GROUP = "239.255.255.250"
-SKUS = ["H6199", "H6076", "H6008", "H61A0"]
+SKUS = ["H6199", "H6056", "H6008", "H61A0"]
 
 
 class FakeLight:

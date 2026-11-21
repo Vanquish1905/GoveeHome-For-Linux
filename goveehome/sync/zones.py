@@ -17,7 +17,14 @@ LAYOUTS: dict[str, str] = {
     "right": "Right edge, bottom to top",
     "u_shape": "Left, top, right (TV backlight)",
     "around": "All four edges, clockwise from bottom left",
+    "bars": "Two bars, left and right of the screen",
+    "bars_swapped": "Two bars, right and left of the screen",
+    "bars_top_bottom": "Two bars, above and below the screen",
 }
+
+# Light bar pairs (H6046, H6047, H6056, ...) are one light with two bars:
+# the first half of the segments is one bar, the second half the other, and
+# each bar counts from its top.
 
 SCREEN_ASPECT = 16 / 9
 
@@ -61,9 +68,28 @@ def _edge(edge: str, n: int, depth: float, along_path: bool = False) -> list[Rec
     raise ValueError(edge)
 
 
+def _bars(layout: str, n: int, depth: float, reverse: bool) -> list[Rect]:
+    first = (n + 1) // 2
+    second = n - first
+    if layout == "bars_top_bottom":
+        a = [(x0, 0.0, x1, depth) for x0, x1 in _split(first)]
+        b = [(x0, 1.0 - depth, x1, 1.0) for x0, x1 in _split(second)] if second else []
+    else:
+        left = [(0.0, y0, depth, y1) for y0, y1 in _split(first)]          # top to bottom
+        right = [(1.0 - depth, y0, 1.0, y1) for y0, y1 in _split(second)] if second else []
+        a, b = (left, right) if layout == "bars" else (right, left)
+    if reverse:  # each bar runs the other way; the bars stay where they are
+        a, b = a[::-1], b[::-1]
+    return a + b
+
+
 def layout_rects(layout: str, segments: int, depth: float = 0.18, reverse: bool = False) -> list[Rect]:
     n = max(1, int(segments))
     depth = min(0.5, max(0.02, depth))
+    if layout.startswith("bars") and n > 1:
+        if layout not in LAYOUTS:
+            raise ValueError(f"unknown layout {layout!r}")
+        return _bars(layout, n, depth, reverse)
     if layout == "whole" or n == 1 and layout not in ("top", "bottom", "left", "right"):
         rects = [(0.0, 0.0, 1.0, 1.0)] * n
     elif layout == "columns":

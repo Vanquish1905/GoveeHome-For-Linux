@@ -41,3 +41,22 @@ def test_reverse():
 def test_unknown_layout():
     with pytest.raises(ValueError):
         layout_rects("spiral", 3)
+
+
+def test_bars_left_and_right_top_to_bottom():
+    rects = layout_rects("bars", 12, depth=0.15)
+    left, right = rects[:6], rects[6:]
+    assert all(r[0] == 0.0 for r in left) and all(r[2] == 1.0 for r in right)
+    assert left[0][1] == 0.0 and left[-1][3] == 1.0          # first segment at the top
+    swapped = layout_rects("bars_swapped", 12, depth=0.15)
+    assert swapped[:6] == right and swapped[6:] == left
+
+
+def test_bars_reverse_keeps_the_sides():
+    rects = layout_rects("bars", 12, reverse=True)
+    assert all(r[0] == 0.0 for r in rects[:6]) and rects[0][3] == 1.0
+
+
+def test_bars_above_and_below():
+    rects = layout_rects("bars_top_bottom", 10, depth=0.2)
+    assert all(r[1] == 0.0 for r in rects[:5]) and all(r[3] == 1.0 for r in rects[5:])

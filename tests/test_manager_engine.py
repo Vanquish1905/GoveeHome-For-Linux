@@ -96,7 +96,7 @@ def test_engine_drives_lights(tmp_path):
     assert states[0] == (True, None) and states[-1] == (False, None)
     frames = [c for c in m.lan.calls if c[0] == "stream_colors"]
     assert len(frames) > 3
-    assert all(c[1] == "10.0.0.1" and len(c[2]) == 10 for c in frames)
+    assert all(c[1] == "10.0.0.1" and len(c[2]) == 15 for c in frames)
     assert previews and "cloud" not in previews[-1].targets
     assert m.lan.calls[-1] == ("stream_enable", "10.0.0.1", False)
 
@@ -146,14 +146,51 @@ def test_effect_engine_applies_gamma_and_gains(tmp_path):
     assert r == g and abs(b - r / 2) <= 1
 
 
-def test_identify_marks_both_ends(tmp_path):
+def test_identify_shows_the_screen_sides(tmp_path):
     m = make_manager(tmp_path)
     tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
     m.identify(tv, seconds=0.3)
     time.sleep(0.6)
-    frames = [c[2] for c in m.lan.calls if c[0] == "stream_colors"]
-    assert frames[0][0] == (255, 0, 0) and frames[0][-1] == (0, 0, 255)
+    frame = [c[2] for c in m.lan.calls if c[0] == "stream_colors"][0]
+    # TV backlight: starts bottom left (dim red), goes up (bright red), across
+    # the top (green) and down the right (bright then dim blue)
+    assert frame[0] == (38, 0, 0) and frame[-1] == (0, 0, 38)
+    assert (255, 0, 0) in frame and (0, 255, 0) in frame and (0, 0, 255) in frame
     assert ("stream_enable", "10.0.0.1", False) in m.lan.calls
+
+
+def test_identify_for_light_bars(tmp_path):
+    from goveehome.manager import DeviceManager
+    colors = DeviceManager.identify_colors({"segments": 12, "streaming": True, "layout": "bars",
+                                            "reverse": False})
+    assert colors[:3] == [(255, 0, 0)] * 3 and colors[3:6] == [(38, 0, 0)] * 3
+    assert colors[6:9] == [(0, 0, 255)] * 3 and colors[9:] == [(0, 0, 38)] * 3
+
+
+def test_streaming_is_switched_on_once(tmp_path):
+    m = make_manager(tmp_path)
+    tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    for _ in range(50):
+        m.stream(tv, [(1, 2, 3)] * 15)
+    assert [c[0] for c in m.lan.calls].count("stream_enable") == 1
+
+
+def test_h6056_defaults(tmp_path):
+    m = make_manager(tmp_path)
+    bars = m.devices["bars"] = Device("bars", sku="H6056", ip="10.0.0.3")
+    s = m.stream_settings(bars)
+    assert s["segments"] == 12 and s["layout"] == "bars" and s["streaming"]
+    # the cloud reports 15 segments for it, only 12 exist
+    bars.cloud_capabilities = [{"instance": "segmentedColorRgb", "parameters": {"fields": [
+        {"fieldName": "segment", "elementRange": {"min": 0, "max": 14}}]}}]
+    assert m.stream_settings(bars)["segments"] == 12
+
+
+def test_black_colour_commands_are_not_ignored(tmp_path):
+    m = make_manager(tmp_path)
+    bulb = m.devices["b"] = Device("b", sku="H6008", ip="10.0.0.4")
+    m.stream(bulb, [(0, 0, 0)])
+    assert ("color", "10.0.0.4", (1, 1, 1)) in m.lan.calls
 
 
 def test_groups(tmp_path):
