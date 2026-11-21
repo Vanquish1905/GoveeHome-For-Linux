@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.7.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -417,6 +417,25 @@ green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it
 Go through [Getting the colours to match](#getting-the-colours-to-match). With more than one
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
+
+**Screen sync: a light shows white or grey, but effects / plain colours look right**
+
+Run the **colour test**: on the light's page, *Light shows → Colour test → Test colours*,
+or in a terminal:
+
+```bash
+goveehome-cli test-light all
+```
+
+It shows red twice, once with segment streaming and once as a plain colour, and asks what
+the light shows. Many RGBIC strips (for example the H61A0 neon strip) accept segment
+streaming frames but display them wrong, as white or grey. If only the plain colour shows
+red, the test switches segment streaming off for that light, and screen sync sends it one
+strong colour instead. If streaming works, it stays on. `goveehome-cli diagnose` runs the
+same test at the end.
+
+Since 1.8.0, segment streaming is only switched on by default for lights where it is known
+to work (DreamView backlights, light bars, gaming strips); the test turns it on for others.
 
 **Screen sync: the lights are white or grey (H6056 and other RGBWW lights)**
 

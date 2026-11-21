@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.0" date="2026-11-21">
+      <description>
+        <p>Colour test that finds out whether a light understands segment streaming or only
+        plain colours. Streaming is now only assumed for lights where it is known to work.</p>
+      </description>
+    </release>
     <release version="1.7.0" date="2026-11-21">
       <description>
         <p>Screen sync sends clean, vivid colours (Vividness, like Govee's own app), so lights

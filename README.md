@@ -22,6 +22,8 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   like the H6056 Flow Plus (one bar on each side of the screen)
 - *Follow the video*: when a film or game runs in a window, the lights take their colours
   from it instead of the white page or desktop around it
+- A *colour test* that finds out whether a light understands segment streaming or only
+  plain colours, and sets it up accordingly
 - An *Identify* test that shows on the light which side of the screen each segment follows,
   and a live colour strip per light showing exactly what it is being sent
 - Colours that match: every screen pixel counts, mixing happens in linear light and the
@@ -114,8 +116,11 @@ get the right segment count and mounting preset out of the box, among them:
 | Lamps and panels | H6072, H6076, H6078, H607C, H6061–H6069, H610A, H610B |
 | Bulbs and others | H6008, H6009, H600D, H6052, H6022, outdoor lights and more |
 
-Anything else shows up as "Govee H…" with safe defaults; set the segments and mounting on
-the light's page and use *Identify* to check them. With an API key, the segment count comes
+Segment streaming is switched on by default only where it's known to work (DreamView
+backlights, light bars, gaming strips). For any other light, run the *colour test* on its
+page once: if the light understands streaming, it gets one colour per segment, otherwise it
+gets one strong colour. Anything not in the table shows up as "Govee H…" with safe
+defaults; set the segments and mounting on the light's page and use *Identify* to check them. With an API key, the segment count comes
 from your Govee account.
 
 ## Command line
@@ -135,6 +140,7 @@ goveehome-cli effect list
 goveehome-cli effect aurora --speed 0.5
 goveehome-cli effect meteor --color "#ff2000" --size 40 --reverse
 goveehome-cli diagnose                              # check screen capture and lights
+goveehome-cli test-light all                        # find out how each light takes colours
 goveehome-cli update                                # install the newest version from GitHub
 ```
 
