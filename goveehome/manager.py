@@ -449,11 +449,11 @@ class DeviceManager:
             except RuntimeError:
                 pass
 
-    def stream_stop(self, device: Device, restore: bool = True) -> None:
+    def stream_stop(self, device: Device, restore: bool = True, settings: dict | None = None) -> None:
         entry = self._stream_state.pop(device.id, None)
         if entry is None:
             return
-        settings = self.stream_settings(device)
+        settings = settings or self.stream_settings(device)
         if settings["streaming"] and device.ip:
             # the light falls back to whatever it showed before streaming
             self.lan.stream_enable(device.ip, False)
@@ -515,6 +515,35 @@ class DeviceManager:
                 time.sleep(0.4)
             self.stream_stop(device, restore=True)
         threading.Thread(target=run, name="govee-identify", daemon=True).start()
+
+    def show_test_colour(self, device: Device, rgb: RGB, streaming: bool, seconds: float = 4.0,
+                         wait: bool = False, stop: threading.Event | None = None) -> threading.Thread:
+        """Show one colour for a few seconds in the given mode, then put the light back.
+
+        Used by the colour test that finds out whether a light understands
+        segment streaming, or only plain colour commands.
+        """
+        settings = {**self.stream_settings(device), "streaming": streaming and bool(device.ip),
+                    "gradient": False}
+        n = max(1, int(settings["segments"])) if settings["streaming"] else 1
+
+        stop = stop or threading.Event()
+
+        def run():
+            end = time.monotonic() + seconds
+            while time.monotonic() < end and not stop.is_set():
+                self.stream(device, [tuple(rgb)] * n, settings)
+                stop.wait(0.3)
+            self.stream_stop(device, restore=True, settings=settings)
+        thread = threading.Thread(target=run, name="govee-colour-test", daemon=True)
+        thread.start()
+        if wait:
+            thread.join()
+        return thread
+
+    def set_streaming(self, device: Device, streaming: bool) -> None:
+        self.config.update_device_settings(device.id, streaming=bool(streaming))
+        self._emit("updated", device)
 
     @property
     def streaming_devices(self) -> list[str]:

@@ -207,3 +207,43 @@ def test_groups(tmp_path):
     assert len(m.groups()) == 1 and m.group(g["id"])["name"] == "Desk area"
     m.delete_group(g["id"])
     assert m.groups() == [] and events.count("groups") == 3
+
+
+def test_streaming_is_only_assumed_where_it_is_known_to_work(tmp_path):
+    m = make_manager(tmp_path)
+    neon = m.devices["neon"] = Device("neon", sku="H61A0", ip="10.0.0.5")
+    tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.6")
+    assert m.stream_settings(neon)["streaming"] is False
+    assert m.stream_settings(tv)["streaming"] is True
+
+
+def test_colour_test_modes_and_saving(tmp_path):
+    import threading
+    m = make_manager(tmp_path)
+    neon = m.devices["neon"] = Device("neon", sku="H61A0", ip="10.0.0.5")
+    stop = threading.Event()
+    t = m.show_test_colour(neon, (255, 0, 0), streaming=True, seconds=10, stop=stop)
+    time.sleep(0.4)
+    stop.set()
+    t.join(2)
+    names = [c[0] for c in m.lan.calls]
+    assert "stream_colors" in names and ("stream_enable", "10.0.0.5", False) in m.lan.calls
+    m.lan.calls.clear()
+    m.show_test_colour(neon, (255, 0, 0), streaming=False, seconds=0.4, wait=True)
+    assert ("color", "10.0.0.5", (255, 0, 0)) in m.lan.calls
+    assert not any(c[0] == "stream_colors" for c in m.lan.calls)
+    m.set_streaming(neon, True)
+    assert m.stream_settings(neon)["streaming"] is True
+
+
+def test_cli_colour_test_turns_streaming_off_when_only_plain_colours_work(tmp_path, monkeypatch):
+    from goveehome import cli
+    m = make_manager(tmp_path)
+    neon = m.devices["neon"] = Device("neon", sku="H61A0", ip="10.0.0.5")
+    m.set_streaming(neon, True)
+    answers = iter(["w", "r"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    result = cli.colour_test(m, neon)
+    assert "plain colours work" in result
+    assert m.stream_settings(neon)["streaming"] is False

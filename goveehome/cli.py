@@ -229,6 +229,61 @@ def cmd_update(args) -> int:
     return 0
 
 
+ANSWERS = {"r": "red", "w": "white or grey", "n": "no change", "o": "something else"}
+
+
+def _ask(question: str) -> str:
+    while True:
+        try:
+            answer = input(question + " [r]ed / [w]hite or grey / [n]o change / [o]ther: ").strip().lower()
+        except EOFError:
+            return "o"
+        if answer[:1] in ANSWERS:
+            return answer[:1]
+
+
+def _show_and_ask(manager, device, streaming: bool, question: str) -> str:
+    stop = threading.Event()
+    thread = manager.show_test_colour(device, (255, 0, 0), streaming=streaming, seconds=30.0, stop=stop)
+    time.sleep(1.0)                      # give the light a moment before asking
+    answer = _ask(question)
+    stop.set()
+    thread.join(5)
+    time.sleep(0.8)                      # let the light settle back
+    return answer
+
+
+def colour_test(manager, device) -> str:
+    """Find out how a light takes colours; saves the result. Returns a summary line."""
+    name = f"{device.display_name} ({device.sku})"
+    if not device.ip:
+        return f"{name}: no LAN connection, colour test skipped"
+    print(f"\n{name}: colour test. Look at the light.")
+    print("  1/2: sending RED with segment streaming…")
+    first = _show_and_ask(manager, device, True, "  What does the light show?")
+    if first == "r":
+        manager.set_streaming(device, True)
+        return f"{name}: segment streaming works, it is now on (a colour per segment)"
+    print("  2/2: sending RED as a plain colour…")
+    second = _show_and_ask(manager, device, False, "  What does the light show now?")
+    if second == "r":
+        manager.set_streaming(device, False)
+        return (f"{name}: segment streaming showed {ANSWERS[first]}, plain colours work. "
+                "Segment streaming is now off for it; screen sync sends one colour.")
+    return (f"{name}: streaming showed {ANSWERS[first]}, plain colour showed {ANSWERS[second]}. "
+            "Check that LAN Control is on in the Govee app and the light is not in a scene.")
+
+
+def cmd_test_light(args) -> int:
+    manager = _manager(args)
+    _wait_for_devices(manager, args.timeout)
+    results = [colour_test(manager, d) for d in _resolve(manager, args.target)]
+    manager.stop(wait=True)
+    print("\nResult:")
+    print("\n".join("- " + r for r in results))
+    return 0
+
+
 def cmd_diagnose(args) -> int:
     from goveehome import diagnostics
     config = Config()
@@ -240,7 +295,16 @@ def cmd_diagnose(args) -> int:
     print("")
     print("Lights:")
     print("\n".join(diagnostics.light_lines(manager)))
-    manager.stop()
+    if sys.stdin.isatty() and not args.no_test:
+        try:
+            go = input("\nTest which colours your lights really show? This takes ~10 s per light. [Y/n] ")
+        except EOFError:
+            go = "n"
+        if go.strip().lower() in ("", "y", "yes", "j", "ja"):
+            results = [colour_test(manager, d) for d in manager.list() if d.ip]
+            print("\nColour test:")
+            print("\n".join("- " + r for r in results))
+    manager.stop(wait=True)
     return 0
 
 
@@ -258,7 +322,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("diagnose", help="check screen capture and lights, print a report")
     s.add_argument("--backend", choices=[b for b in capture.BACKENDS if b != "auto"])
     s.add_argument("--seconds", type=float, default=4.0)
+    s.add_argument("--no-test", action="store_true", help="skip the colour test of the lights")
     s.set_defaults(func=cmd_diagnose)
+
+    s = sub.add_parser("test-light", help="find out how a light shows colours and set it up")
+    s.add_argument("target", help="name, IP, id or 'all'")
+    s.set_defaults(func=cmd_test_light)
 
     s = sub.add_parser("update", help="update GoveeHome to the newest version on GitHub")
     s.add_argument("--check", action="store_true", help="only show whether an update exists")

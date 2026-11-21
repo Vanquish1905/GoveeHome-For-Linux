@@ -199,8 +199,63 @@ class DevicePage(ControlPage):
         btn.connect("clicked", lambda *_: self.manager.identify(self.device))
         identify.add_suffix(btn)
         group.add(identify)
+
+        test = Adw.ActionRow(title="Colour test",
+                             subtitle="Finds out whether this light understands segment streaming or only "
+                                      "plain colours, and sets it up. Run it if screen sync shows white or grey.")
+        tbtn = Gtk.Button(label="Test colours", valign=Gtk.Align.CENTER, sensitive=bool(self.device.ip))
+        tbtn.add_css_class("flat")
+        tbtn.connect("clicked", lambda *_: self._colour_test_step(1, None))
+        test.add_suffix(tbtn)
+        group.add(test)
         self._update_sync_sensitivity()
         self.page.add(group)
+
+    # colour test -------------------------------------------------------------------
+    def _colour_test_step(self, step: int, first: str | None):
+        import threading
+        streaming = step == 1
+        stop = threading.Event()
+        thread = self.manager.show_test_colour(self.device, (255, 0, 0), streaming=streaming,
+                                               seconds=60.0, stop=stop)
+        how = "with segment streaming" if streaming else "as a plain colour"
+        dialog = Adw.MessageDialog(
+            transient_for=self.window, modal=True, heading=f"Colour test {step} of 2",
+            body=f"The light should be red now, sent {how}. What does it show?")
+        for rid, label in (("red", "Red"), ("white", "White or grey"), ("none", "No change"),
+                           ("other", "Something else")):
+            dialog.add_response(rid, label)
+        dialog.set_response_appearance("red", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("other")
+
+        def answered(_d, response):
+            stop.set()
+
+            def next_step():
+                thread.join(5)
+                if step == 1 and response == "red":
+                    self.manager.set_streaming(self.device, True)
+                    self._finish_test("Segment streaming works on this light and is now on.")
+                elif step == 1:
+                    GLib.timeout_add(800, lambda: (self._colour_test_step(2, response), False)[1])
+                elif response == "red":
+                    self.manager.set_streaming(self.device, False)
+                    self._finish_test("This light only takes plain colours. Segment streaming is now off "
+                                      "for it, so screen sync sends it one strong colour.")
+                else:
+                    self._finish_test("Neither way showed red. Check that LAN Control is on for this light "
+                                      "in the Govee app and that it isn't running a scene.")
+                return False
+            GLib.idle_add(next_step)
+        dialog.connect("response", answered)
+        dialog.present()
+
+    def _finish_test(self, text: str):
+        self.window.toast(text)
+        settings = self.manager.stream_settings(self.device)
+        self.stream_switch.set_active(settings["streaming"])
+        self._update_sync_sensitivity()
+        self._notify_shows()
 
     def _build_correction(self):
         gains = self.app.config.device_settings(self.device.id).get("gains") or [1.0, 1.0, 1.0]
