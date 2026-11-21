@@ -145,7 +145,7 @@ def test_effect_options():
     rev = effects.render("gradient", x, 1.0, p)
     assert np.allclose(fwd, rev[::-1])
     assert set(e.category for e in effects.EFFECTS.values()) == set(effects.CATEGORIES)
-    assert len(effects.EFFECTS) >= 35
+    assert len(effects.EFFECTS) >= 100
 
 
 def test_sunrise_gets_brighter():
@@ -155,7 +155,11 @@ def test_sunrise_gets_brighter():
     assert late > early * 5
 
 
-@pytest.mark.parametrize("effect", [e.id for e in effects.EFFECTS.values() if e.category == "Animated"])
+MOVING = [e.id for e in effects.EFFECTS.values() if e.category in ("Animated", "Moods")] + [
+    "valentine", "easter", "st_patrick", "new_year", "stars_stripes", "diwali", "winter"]
+
+
+@pytest.mark.parametrize("effect", MOVING)
 def test_animated_effects_move_and_are_colourful(effect):
     x = np.linspace(0, 1, 12)
     p = effects.Params()

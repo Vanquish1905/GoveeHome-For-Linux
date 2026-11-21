@@ -553,6 +553,171 @@ def _breathe_cycle(colors):
     return fn
 
 
+def _meteor_shower(x, t, p):
+    """Several meteors in different colours, each starting at a random moment."""
+    out = np.zeros((len(x), 3), np.float32)
+    rate = 0.8 * p.speed
+    for k in range(4):
+        slot = np.floor(t * rate + k * 0.37)
+        head = ((t * rate + k * 0.37) % 1.0) * 1.4
+        d = head - x
+        tail = np.where(d >= 0, np.clip(1 - d / (0.15 + p.size * 0.4), 0, 1) ** 2, 0.0)
+        out += tail[:, None] * hsv(rand(slot, k), 1, 1)
+    if len(x) == 1:
+        out = hsv(np.array([np.floor(t * rate * 2) * 0.27]), 1, 0.4 + 0.6 * ((-t * rate * 2) % 1.0))
+    return out
+
+
+def _colour_rain(x, t, p):
+    """Drops of colour running down the light."""
+    lanes = np.floor(x * 12)
+    speed = 0.5 + rand(lanes) * 0.8
+    head = (t * speed * p.speed + rand(lanes, 2.0)) % 1.0
+    level = np.clip(1 - head / max(0.1, p.size + 0.1), 0, 1) ** 2
+    hue = rand(lanes, np.floor(t * speed * p.speed + rand(lanes, 2.0)))
+    out = hsv(hue, 1.0, level)
+    if len(x) == 1:
+        out = hsv(np.array([np.floor(t * p.speed) * 0.31]), 1, 0.3 + 0.7 * ((-t * p.speed) % 1.0))
+    return out
+
+
+def _pacifica(x, t, p):
+    """Gentle layered ocean waves in blue and green."""
+    a = 0.5 + 0.5 * np.sin(TAU * (x * 1.3 - t * 0.07 * p.speed))
+    b = 0.5 + 0.5 * np.sin(TAU * (x * 2.9 + t * 0.11 * p.speed) + 1.0)
+    c = 0.5 + 0.5 * np.sin(TAU * (x * 0.7 - t * 0.05 * p.speed) + 2.0)
+    col = (a[:, None] * np.array([0, 60, 160], np.float32) + b[:, None] * np.array([0, 140, 120], np.float32)
+           + c[:, None] * np.array([20, 20, 120], np.float32))
+    crest = np.clip((a * b - 0.6) * 3, 0, 1)
+    return col + crest[:, None] * np.array([90, 180, 180], np.float32)
+
+
+def _fairy(x, t, p):
+    """Warm white fairy lights twinkling softly."""
+    n = max(1, len(x))
+    idx = np.arange(n)
+    phase = (t * 0.5 * p.speed + rand(idx, 3.0)) % 1.0
+    level = 0.25 + 0.75 * np.sin(np.pi * phase) ** 4
+    if len(x) == 1:
+        level = np.array([0.5 + 0.5 * np.sin(t * 2.3 * p.speed) ** 2])
+    return level[:, None] * np.array([255, 170, 70], np.float32)
+
+
+def _firefly(x, t, p):
+    out = np.zeros((len(x), 3), np.float32) + np.array([0, 8, 4], np.float32)
+    for k in range(5):
+        period = (2.0 + rand(k) * 2) / p.speed
+        ph = ((t + rand(k, 1.0) * 5) % period) / period
+        pos = rand(k, np.floor((t + rand(k, 1.0) * 5) / period))
+        glow = np.sin(np.pi * np.clip(ph * 2, 0, 1)) ** 2
+        out += _gauss(x, pos, 0.05 + 0.08 * p.size)[:, None] * glow * np.array([200, 255, 40], np.float32)
+    if len(x) == 1:
+        out = np.array([[200, 255, 40]], np.float32) * (0.1 + 0.9 * np.sin(np.pi * ((t * 0.6 * p.speed) % 1)) ** 4)
+    return out
+
+
+def _rainbow_bounce(x, t, p):
+    pos = 0.5 - 0.5 * np.cos(TAU * t * 0.3 * p.speed)
+    hue = t * 0.1 * p.speed
+    out = np.clip(1 - np.abs(x - pos) / (0.08 + 0.25 * p.size), 0, 1)[:, None] * hsv(np.array([hue]), 1, 1)[0]
+    if len(x) == 1:
+        out = hsv(np.array([hue]), 1, 0.4 + 0.6 * pos)
+    return out
+
+
+def _breathing_segments(x, t, p):
+    """Every part of the light breathes in its own colour, out of step."""
+    n = max(1, len(x))
+    idx = np.arange(n)
+    level = 0.1 + 0.9 * (0.5 - 0.5 * np.cos(TAU * (t * 0.25 * p.speed + idx / max(1, n) * 0.6))) ** 1.5
+    return hsv(idx / max(1, n) * 0.8 + t * 0.02, 1.0, level)
+
+
+def _hyperspace(x, t, p):
+    base = _tile((0, 10, 60), len(x))
+    streak = np.clip((noise(x * 25 - t * 6 * p.speed, t * 0.3, 5.0) - 0.7) * 4, 0, 1)
+    out = base + streak[:, None] * np.array([200, 220, 255], np.float32)
+    if len(x) == 1:
+        out = _tile((0, 10, 60), 1) + (((t * 3 * p.speed) % 1) < 0.15) * np.array([200, 220, 255], np.float32)
+    return out
+
+
+def _plasma_ball(x, t, p):
+    base = palette([(60, 0, 120), (120, 0, 200), (40, 0, 90)], x * 0.5 + t * 0.05 * p.speed)
+    arc = np.clip(1 - np.abs(noise(x * 8, t * 3 * p.speed, 2.0) - 0.5) * 12, 0, 1)
+    out = base + arc[:, None] * np.array([200, 120, 255], np.float32)
+    if len(x) == 1:
+        out = base + (rand(np.floor(t * 8 * p.speed)) > 0.7) * np.array([200, 120, 255], np.float32)
+    return out
+
+
+def _electric(x, t, p):
+    flicker = rand(np.floor(x * 20), np.floor(t * 15 * p.speed))
+    level = np.where(flicker > 0.85, 1.0, 0.15 + 0.2 * flicker)
+    return level[:, None] * np.array([80, 160, 255], np.float32) + (flicker > 0.95)[:, None] * 120
+
+
+def _stained_glass(x, t, p):
+    """Blocks of rich colours that slowly change one after another."""
+    blocks = np.floor(x * (3 + 7 * p.size))
+    step = t * 0.2 * p.speed + blocks * 0.37
+    a = hsv(rand(blocks, np.floor(step)), 0.95, 0.9)
+    b = hsv(rand(blocks, np.floor(step) + 1), 0.95, 0.9)
+    f = (step % 1.0)[:, None]
+    f = f * f * (3 - 2 * f)
+    return a * (1 - f) + b * f
+
+
+def _disco_ball(x, t, p):
+    base = _tile((10, 0, 30), len(x))
+    spots = rand(np.floor(x * 30), np.floor(t * 6 * p.speed))
+    hue = rand(np.floor(x * 30), np.floor(t * 6 * p.speed), 4.0)
+    out = base + hsv(hue, 0.6, np.where(spots > 0.6, 1.0, 0.0))
+    if len(x) == 1:
+        out = hsv(np.array([rand(np.floor(t * 4 * p.speed))]), 0.6, 1.0)
+    return out
+
+
+def _heat_wave(x, t, p):
+    u = x * 0.8 + 0.2 * np.sin(TAU * (x * 2 + t * 0.3 * p.speed)) + t * 0.05 * p.speed
+    col = palette([(255, 40, 0), (255, 140, 0), (200, 0, 60), (255, 90, 0)], u)
+    return col * (0.7 + 0.3 * noise(x * 5, t * 2 * p.speed))[:, None]
+
+
+def _drift(colors):
+    """Calm: the whole light slowly drifts through the colours, gently waving."""
+    def fn(x, t, p):
+        u = t * 0.09 * p.speed + x * 0.45 + 0.08 * np.sin(TAU * (x - t * 0.15 * p.speed))
+        wave = 0.8 + 0.2 * np.sin(TAU * (x * 1.5 - t * 0.25 * p.speed))
+        return palette(colors, u) * wave[:, None]
+    return fn
+
+
+def _twinkle_in(colors, base=(0, 0, 0)):
+    def fn(x, t, p):
+        n = max(1, len(x))
+        idx = np.arange(n)
+        period = 1.5 / max(0.05, p.speed)
+        offset = rand(idx, 9.0) * period
+        phase = ((t + offset) % period) / period
+        level = np.sin(np.pi * phase) ** 3
+        which = (rand(idx, np.floor((t + offset) / period)) * len(colors)).astype(int) % len(colors)
+        out = np.asarray(colors, np.float32)[which] * level[:, None] + np.asarray(base, np.float32)
+        if len(x) == 1:
+            out = palette(colors, np.array([t * 0.2 * p.speed])) * (0.4 + 0.6 * np.sin(np.pi * (t * 0.7 % 1)) ** 2)
+        return out
+    return fn
+
+
+def _chase_in(colors):
+    def fn(x, t, p):
+        out = _color_blocks(x, t, p, colors)
+        if len(x) == 1:
+            out = palette(colors, np.array([t * 0.3 * p.speed]))
+        return out
+    return fn
+
+
 @dataclass(frozen=True)
 class Effect:
     id: str
@@ -564,7 +729,7 @@ class Effect:
     uses_size: bool = False
 
 
-CATEGORIES = ["Animated", "Colourful", "Your colours", "Nature", "Party and seasons"]
+CATEGORIES = ["Animated", "Moods", "Colourful", "Your colours", "Nature", "Party and seasons"]
 
 _ANIMATED = [
     ("juggle", "Juggle", _juggle, ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255)), True),
@@ -597,10 +762,53 @@ _ANIMATED = [
     ("flow_cyber", "Cyber flow", _flow([(255, 0, 120), (0, 240, 255), (250, 240, 0), (120, 0, 255)]), ((255, 0, 120), (0, 240, 255), (250, 240, 0)), True),
     ("flow_ocean", "Deep sea flow", _flow([(0, 30, 150), (0, 200, 220), (0, 90, 255), (60, 0, 200)]), ((0, 30, 150), (0, 200, 220), (60, 0, 200)), True),
     ("breathe_rgb", "Breathing colours", _breathe_cycle([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255), (255, 200, 0), (0, 255, 255)]), ((255, 0, 0), (0, 255, 0), (0, 0, 255)), False),
+    ("meteor_shower", "Meteor shower", _meteor_shower, ((0, 0, 0), (255, 0, 120), (0, 200, 255)), True),
+    ("colour_rain", "Colour rain", _colour_rain, ((255, 0, 100), (0, 0, 0), (0, 200, 255)), True),
+    ("pacifica", "Pacifica", _pacifica, ((0, 60, 160), (0, 140, 120), (90, 200, 220)), False),
+    ("rainbow_bounce", "Rainbow bounce", _rainbow_bounce, ((0, 0, 0), (255, 0, 200), (0, 0, 0)), True),
+    ("breathing_segments", "Breathing rainbow", _breathing_segments, ((255, 0, 0), (60, 60, 0), (0, 255, 120)), False),
+    ("hyperspace", "Hyperspace", _hyperspace, ((0, 10, 60), (200, 220, 255), (0, 10, 60)), False),
+    ("plasma_ball", "Plasma ball", _plasma_ball, ((60, 0, 120), (200, 120, 255), (60, 0, 120)), False),
+    ("electric", "Electric", _electric, ((20, 40, 80), (200, 255, 255), (20, 40, 80)), False),
+    ("stained_glass", "Stained glass", _stained_glass, ((200, 0, 40), (0, 80, 200), (220, 170, 0)), True),
+    ("disco_ball", "Disco ball", _disco_ball, ((10, 0, 30), (255, 150, 255), (150, 255, 255)), False),
+    ("heat_wave", "Heat wave", _heat_wave, ((255, 40, 0), (255, 140, 0), (200, 0, 60)), False),
+    ("fireflies", "Fireflies", _firefly, ((0, 8, 4), (200, 255, 40), (0, 8, 4)), True),
+]
+
+_MOODS = [
+    ("mood_peacock", "Peacock", [(0, 150, 140), (0, 60, 200), (40, 200, 60), (220, 170, 0)]),
+    ("mood_unicorn", "Unicorn", [(255, 120, 220), (150, 100, 255), (100, 220, 255), (255, 200, 240)]),
+    ("mood_watermelon", "Watermelon", [(255, 40, 90), (40, 200, 60), (255, 120, 140)]),
+    ("mood_cherry", "Cherry blossom", [(255, 150, 190), (255, 230, 240), (230, 80, 140)]),
+    ("mood_lagoon", "Lagoon", [(0, 220, 200), (0, 120, 255), (0, 255, 160)]),
+    ("mood_toxic", "Toxic", [(120, 255, 0), (150, 0, 255), (0, 255, 60)]),
+    ("mood_synthwave", "Synthwave", [(255, 0, 150), (120, 0, 255), (255, 100, 0), (0, 200, 255)]),
+    ("mood_rose_gold", "Rose gold", [(255, 150, 120), (255, 200, 150), (230, 110, 110)]),
+    ("mood_autumn", "Autumn", [(255, 90, 0), (180, 40, 0), (255, 170, 0), (120, 60, 0)]),
+    ("mood_northern", "Northern lights", [(0, 255, 120), (0, 120, 255), (200, 0, 255)]),
+    ("mood_sunrise", "Morning glow", [(255, 120, 40), (255, 200, 120), (255, 90, 120)]),
+    ("mood_twilight", "Twilight", [(40, 0, 120), (200, 60, 160), (255, 120, 60)]),
+    ("mood_jungle", "Jungle", [(0, 160, 40), (160, 220, 0), (0, 100, 60), (220, 200, 0)]),
+    ("mood_ice", "Glacier", [(200, 240, 255), (60, 160, 255), (0, 80, 200)]),
+    ("mood_berry", "Berry", [(150, 0, 90), (255, 0, 120), (90, 0, 160)]),
+    ("mood_citrus", "Citrus", [(255, 220, 0), (255, 120, 0), (180, 255, 0)]),
+]
+
+_SEASONAL = [
+    ("valentine", "Valentine", _twinkle_in([(255, 0, 60), (255, 100, 160), (200, 0, 40)], (30, 0, 8))),
+    ("easter", "Easter", _twinkle_in([(255, 180, 220), (180, 220, 255), (255, 240, 150), (190, 255, 190)], (20, 20, 20))),
+    ("st_patrick", "St Patrick's", _chase_in([(0, 200, 60), (120, 255, 0), (0, 120, 30)])),
+    ("new_year", "New Year", _twinkle_in([(255, 200, 60), (255, 255, 255), (255, 160, 0)], (10, 5, 0))),
+    ("stars_stripes", "Red, white and blue", _chase_in([(255, 0, 0), (255, 255, 255), (0, 40, 255)])),
+    ("diwali", "Festival of lights", _twinkle_in([(255, 150, 0), (255, 210, 60), (255, 60, 0), (200, 0, 120)], (20, 8, 0))),
+    ("winter", "Winter wonderland", _twinkle_in([(255, 255, 255), (150, 210, 255), (60, 120, 255)], (5, 10, 30))),
 ]
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in [
     *[Effect(eid, label, fn, "Animated", 0, prev, size) for eid, label, fn, prev, size in _ANIMATED],
+    *[Effect(eid, label, _drift(cols), "Moods", 0, tuple(cols)) for eid, label, cols in _MOODS],
+    *[Effect(eid, label, fn, "Party and seasons", 0, ()) for eid, label, fn in _SEASONAL],
     # colourful
     Effect("rainbow", "Rainbow", _rainbow, "Colourful", 0, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), True),
     Effect("cycle", "Colour cycle", _cycle, "Colourful", 0, ((255, 0, 120), (255, 160, 0), (0, 200, 255))),
