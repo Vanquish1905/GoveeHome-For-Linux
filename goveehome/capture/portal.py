@@ -146,18 +146,28 @@ class PortalCapture(GstCapture):
         return f"pipewiresrc name=src fd={self._fd} path={self._node} do-timestamp=true"
 
     def source_properties(self) -> dict:
-        # hand buffers back to the compositor at once so it never has to wait
-        # for us, and repeat the last frame while the screen doesn't change
-        return {"always-copy": True, "keepalive-time": 500}
+        # Hand buffers back to the compositor at once so it never has to wait
+        # for us, repeat the last frame while the screen doesn't change, and
+        # stay within the 4 buffers KWin (KDE) allows per stream.
+        return {"always-copy": True, "keepalive-time": 500, "min-buffers": 1, "max-buffers": 4}
+
+    def source_variants(self) -> list[str]:
+        # Ask for plain 8-bit RGB in normal memory first. Compositors, KWin in
+        # particular, otherwise prefer GPU buffers (DMA-BUF) whose memory can
+        # come out scrambled or washed out when read on the CPU.
+        return [
+            "video/x-raw,format={ BGRx, BGRA, RGBx, RGBA, xRGB, ARGB, xBGR, ABGR }",
+            "",
+        ]
 
     def open(self) -> None:
         if not has_element("pipewiresrc"):
             raise CaptureError("GStreamer PipeWire plugin missing (install pipewire-gstreamer)")
         self._fd, self._node = self._negotiate()
-        self.start_pipeline()
+        self.start_best_pipeline()
 
     def close(self) -> None:
-        super().close()
+        self.stop_pipeline()
         if self._fd is not None:
             try:
                 os.close(self._fd)

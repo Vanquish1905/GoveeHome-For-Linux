@@ -60,6 +60,7 @@ class GstCapture(CaptureBackend):
         self._last: np.ndarray | None = None
         self.last_age: float | None = None     # seconds between screen and our frame
         self.source_format: str = ""           # e.g. "1920×1080 BGRx", for diagnostics
+        self.variant = ""
 
     def source_description(self) -> str:
         raise NotImplementedError
@@ -68,10 +69,15 @@ class GstCapture(CaptureBackend):
         """Optional properties of the element named "src", set only if it has them."""
         return {}
 
-    def start_pipeline(self) -> None:
+    def source_variants(self) -> list[str]:
+        """Caps to try right after the source, best first ("" = whatever it offers)."""
+        return [""]
+
+    def start_pipeline(self, source_caps: str = "") -> None:
         Gst = gst()
+        caps = f" ! {source_caps}" if source_caps else ""
         desc = (
-            f"{self.source_description()} ! "
+            f"{self.source_description()}{caps} ! "
             "queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
             f"videoscale method=lanczos{_scale_threads()} ! "
             f"video/x-raw,width={SCALE_WIDTH},height={SCALE_HEIGHT} ! "
@@ -88,11 +94,50 @@ class GstCapture(CaptureBackend):
                 src.set_property(key, value)
         self._sink = self._pipeline.get_by_name("sink")
         if self._pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
-            self.close()
+            self.stop_pipeline()
             raise CaptureError("Could not start screen capture")
 
+    def stop_pipeline(self) -> None:
+        if self._pipeline is not None:
+            self._pipeline.set_state(gst().State.NULL)
+            self._pipeline = None
+            self._sink = None
+
+    def start_best_pipeline(self, wait: float = 3.0) -> None:
+        """Try the source variants in order until one delivers frames without errors."""
+        import time
+        Gst = gst()
+        errors = []
+        variants = self.source_variants()
+        for i, caps in enumerate(variants):
+            try:
+                self.start_pipeline(caps)
+            except CaptureError as exc:
+                errors.append(str(exc))
+                continue
+            deadline = time.monotonic() + wait
+            failed = None
+            while time.monotonic() < deadline:
+                msg = self._pipeline.get_bus().pop_filtered(Gst.MessageType.ERROR)
+                if msg:
+                    failed = msg.parse_error()[0].message
+                    break
+                sample = self._sink.emit("try-pull-sample", 50 * Gst.MSECOND)
+                if sample is not None:
+                    frame = self._to_array(sample)
+                    if frame is not None:
+                        self._last = downscale(frame)
+                        self._read_format()
+                    break
+            if failed is None:
+                self.variant = "preferred" if i == 0 else "fallback"
+                return
+            errors.append(failed)
+            self.stop_pipeline()
+        raise CaptureError("Screen capture failed: " + "; ".join(errors[-2:]))
+
     def open(self) -> None:
-        self.start_pipeline()
+        self.start_best_pipeline()
 
     def _check_bus(self) -> None:
         Gst = gst()
@@ -157,7 +202,4 @@ class GstCapture(CaptureBackend):
             self.last_age = None
 
     def close(self) -> None:
-        if self._pipeline is not None:
-            self._pipeline.set_state(gst().State.NULL)
-            self._pipeline = None
-            self._sink = None
+        self.stop_pipeline()

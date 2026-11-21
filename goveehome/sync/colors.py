@@ -243,5 +243,39 @@ def combine(colors: np.ndarray) -> np.ndarray:
     return to_srgb(strongest_colour(c, to_linear(c), min_share=0.0001))[None, :]
 
 
+class ColourBoost:
+    """Bring back the colour of a washed-out picture.
+
+    Some captures come out pale: KDE Plasma with HDR switched on hands out a
+    washed-out picture, and some content is just pastel. Lights then only
+    ever get greyish colours. This measures how saturated the most colourful
+    tenth of the picture is and, if that's low, raises the saturation of the
+    whole frame before colours are picked. It changes slowly, so it doesn't
+    pump with every scene, and grey stays grey (there's nothing to boost).
+    """
+
+    TARGET = 0.65        # saturation the colourful part of the picture should reach
+    MAX = 3.5
+
+    def __init__(self):
+        self.factor = 1.0
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray:
+        px = frame.reshape(-1, 3).astype(np.float32)
+        mx = px.max(axis=1)
+        sat = (mx - px.min(axis=1)) / np.maximum(mx, 1.0)
+        lit = sat[mx > 40]
+        if len(lit) < 50:
+            return frame
+        p90 = float(np.percentile(lit, 90))
+        target = float(np.clip(self.TARGET / max(p90, 0.05), 1.0, self.MAX)) if p90 < self.TARGET else 1.0
+        self.factor += (target - self.factor) * 0.08
+        if self.factor < 1.03:
+            return frame
+        f = frame.astype(np.float32)
+        lum = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2])[..., None]
+        return np.clip(lum + (f - lum) * self.factor, 0, 255).astype(np.uint8)
+
+
 def to_rgb_list(colors: np.ndarray) -> list[tuple[int, int, int]]:
     return [tuple(int(v) for v in row) for row in np.clip(np.rint(colors), 0, 255).astype(np.uint8)]

@@ -229,6 +229,21 @@ def cmd_update(args) -> int:
     return 0
 
 
+def cmd_diagnose(args) -> int:
+    from goveehome import diagnostics
+    config = Config()
+    if args.backend:
+        config.sync["backend"] = args.backend
+    print(diagnostics.run_capture_check(config, args.seconds))
+    manager = _manager(args)
+    _wait_for_devices(manager, args.timeout)
+    print("")
+    print("Lights:")
+    print("\n".join(diagnostics.light_lines(manager)))
+    manager.stop()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="goveehome-cli", description="Control Govee lights from the terminal.")
     p.add_argument("--version", action="version", version=__version__)
@@ -239,6 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="list lights").set_defaults(func=cmd_list)
+
+    s = sub.add_parser("diagnose", help="check screen capture and lights, print a report")
+    s.add_argument("--backend", choices=[b for b in capture.BACKENDS if b != "auto"])
+    s.add_argument("--seconds", type=float, default=4.0)
+    s.set_defaults(func=cmd_diagnose)
 
     s = sub.add_parser("update", help="update GoveeHome to the newest version on GitHub")
     s.add_argument("--check", action="store_true", help="only show whether an update exists")

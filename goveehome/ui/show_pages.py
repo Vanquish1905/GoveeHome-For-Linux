@@ -372,6 +372,13 @@ class ScreenSyncPage(ShowPage):
                                active=bool(self.config.sync.get("follow_video", True)))
         follow.connect("notify::active", lambda r, _p: self.config.set_sync("follow_video", r.get_active()))
         group.add(follow)
+
+        boost = Adw.SwitchRow(title="Colour boost",
+                              subtitle="Brings back the colour when the captured picture is washed out, "
+                                       "e.g. on KDE Plasma with HDR on",
+                              active=bool(self.config.sync.get("auto_boost", True)))
+        boost.connect("notify::active", lambda r, _p: self.config.set_sync("auto_boost", r.get_active()))
+        group.add(boost)
         self.page.add(group)
 
         speed = Adw.PreferencesGroup(title="Response")
@@ -429,6 +436,23 @@ class ScreenSyncPage(ShowPage):
             forget.add_suffix(btn)
             group.add(forget)
         self.page.add(group)
+
+    def _build_preview(self):
+        group = super()._build_preview()
+        row = Gtk.Box(spacing=6, margin_top=6)
+        copy = Gtk.Button(label="Copy report", tooltip_text="Copies a short report about capture and "
+                          "lights, to paste into a bug report")
+        copy.add_css_class("flat")
+        copy.connect("clicked", self._copy_report)
+        row.append(copy)
+        group.add(row)
+        return group
+
+    def _copy_report(self, *_):
+        from goveehome import diagnostics
+        text = diagnostics.report_from_engine(self.engine, self.manager)
+        Gdk.Display.get_default().get_clipboard().set(text)
+        self.window.toast("Report copied to the clipboard")
 
     def status_text(self, preview):
         text = f"Running · {preview.backend} · {preview.fps:.0f} updates/s"

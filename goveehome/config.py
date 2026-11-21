@@ -34,6 +34,7 @@ DEFAULTS: dict = {
         "black_level": 8,         # colours darker than this are sent as black
         "letterbox": True,        # ignore black bars of films
         "follow_video": True,     # fit the zones onto a video playing in a window
+        "auto_boost": True,       # bring back colour when the capture is washed out
         "restore_on_stop": True,
     },
     "music": {

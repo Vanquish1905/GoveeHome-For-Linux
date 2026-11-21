@@ -91,6 +91,28 @@ class Source:
         return []
 
 
+def kde_hdr_enabled() -> bool | None:
+    """True if KDE Plasma has HDR switched on for any screen, None if unknown."""
+    import os
+    import shutil
+    import subprocess
+    if "KDE" not in (os.environ.get("XDG_CURRENT_DESKTOP") or "").upper():
+        return None
+    tool = shutil.which("kscreen-doctor")
+    if not tool:
+        return None
+    try:
+        out = subprocess.run([tool, "-o"], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    import re
+    out = re.sub(r"\x1b\[[0-9;]*m", "", out)       # it prints colours
+    states = re.findall(r"HDR:\s*(\w+)", out)
+    if not states:
+        return None
+    return any(s.lower() in ("enabled", "on", "true") for s in states)
+
+
 class ScreenSource(Source):
     kind = "sync"
 
@@ -100,6 +122,8 @@ class ScreenSource(Source):
         self.backend: capture.CaptureBackend | None = None
         self.detector = BarDetector()
         self.tracker = ContentTracker()
+        self.boost = sc.ColourBoost()
+        self.hdr: bool | None = None
         self.box = (0, 0, 0, 0)
         self.frame: np.ndarray | None = None
         self._black_run = 0
@@ -111,6 +135,7 @@ class ScreenSource(Source):
         self.backend = self._factory(self.config.sync.get("backend", "auto"))
         self.label = self.backend.label
         self.backend.open()
+        self.hdr = kde_hdr_enabled()
 
     def close(self) -> None:
         if self.backend:
@@ -146,6 +171,10 @@ class ScreenSource(Source):
         # the moving picture wins (video in a window, game); otherwise black bars
         self.box = video if video != (0, 0, 0, 0) else bars
         work = crop(frame, self.box)
+        if sync.get("auto_boost", True):
+            work = self.boost(work)
+        else:
+            self.boost.factor = 1.0
         analyzer = sc.FrameAnalyzer(work)
         mode = sync.get("mode", "accurate")
         saturation = float(sync.get("saturation", 1.15))
@@ -165,7 +194,12 @@ class ScreenSource(Source):
         parts.append(f"{colour * 100:.0f} % of it is colourful")
         if self.box != (0, 0, 0, 0):
             parts.append("following the video")
+        if self.boost.factor >= 1.1:
+            parts.append(f"colour boost ×{self.boost.factor:.1f}")
+        if self.hdr:
+            parts.append("KDE HDR is on (its screen capture is washed out)")
         self.details = ", ".join(parts)
+        self.colourful_share = colour
 
     def preview(self):
         return self.frame
@@ -194,6 +228,8 @@ class LightEngine:
         self.backend_name = ""
         self.fps = 0.0
         self.delay: float | None = None
+        self.source: Source | None = None
+        self.targets: list[Target] = []
 
     @property
     def running(self) -> bool:
@@ -263,7 +299,9 @@ class LightEngine:
             return
         self.backend_name = source.label
         self.delay = None
+        self.source = source
         targets = self._targets(source.kind)
+        self.targets = targets
         if not targets:
             source.close()
             self._notify(False, "No lights selected. Lights need LAN control or Bluetooth for "
@@ -281,6 +319,7 @@ class LightEngine:
                     for t in targets:
                         self.manager.stream_stop(t.device, restore=False)
                     targets = self._targets(source.kind)
+                    self.targets = targets
                 outputs = source.render(targets, started)
                 now = time.monotonic()
                 self._send(targets, outputs, source, now)

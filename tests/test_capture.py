@@ -130,3 +130,33 @@ def test_gstreamer_pipeline_delivers_true_colours():
         cap.close()
     assert frame.shape == (90, 160, 3)
     assert frame[..., 0].min() > 240 and frame[..., 1].max() < 15 and frame[..., 2].max() < 15
+
+
+@gst_ok
+def test_pipeline_falls_back_when_the_preferred_format_is_refused():
+    """Like a compositor that can't hand out plain RGB: the second variant must take over."""
+    from goveehome.capture.gst import GstCapture
+
+    class YuvOnly(GstCapture):
+        label = "test"
+
+        def source_description(self):
+            return ("videotestsrc name=src pattern=blue is-live=true ! "
+                    "video/x-raw,format=I420,width=1280,height=720")
+
+        def source_variants(self):
+            return ["video/x-raw,format={ BGRx, RGBx }", ""]
+
+    cap = YuvOnly()
+    cap.open()
+    try:
+        frame = cap.grab()
+        for _ in range(20):
+            if frame.max() > 0:
+                break
+            frame = cap.grab()
+    finally:
+        cap.close()
+    assert cap.variant == "fallback"
+    assert frame[..., 2].mean() > 200 and frame[..., 0].mean() < 30
+    assert "I420" in cap.source_format
