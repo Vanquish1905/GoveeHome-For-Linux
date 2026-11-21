@@ -11,7 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 DEFAULTS: dict = {
     "version": CONFIG_VERSION,
@@ -28,11 +28,12 @@ DEFAULTS: dict = {
         "smoothing": 0.04,        # seconds, 0 = instant
         "saturation": 1.15,
         "brightness": 1.0,
-        "mode": "accurate",       # see sync.colors.MODES
-        "edge_depth": 0.15,       # fraction of the screen used for edge zones
+        "mode": "vivid",          # see sync.colors.MODES
+        "edge_depth": 0.25,       # fraction of the screen used for edge zones
         "monitor": 1,             # X11 only: 0 = all monitors, 1.. = one monitor
         "black_level": 8,         # colours darker than this are sent as black
         "letterbox": True,        # ignore black bars of films
+        "follow_video": True,     # fit the zones onto a video playing in a window
         "restore_on_stop": True,
     },
     "music": {
@@ -95,6 +96,13 @@ def _migrate(raw: dict) -> dict:
         # its tuning values don't carry over, keep only the structural ones.
         old = raw["sync"]
         raw["sync"] = {k: old[k] for k in ("backend", "restore_on_stop") if k in old}
+    if raw.get("version", 1) < 3 and isinstance(raw.get("sync"), dict):
+        # 1.3 averaged zones exactly and only looked at a thin strip at the
+        # screen edges, which turns lights white on ordinary desktops
+        if raw["sync"].get("mode") in (None, "accurate"):
+            raw["sync"]["mode"] = "vivid"
+        if raw["sync"].get("edge_depth", 0.15) <= 0.15:
+            raw["sync"]["edge_depth"] = 0.25
     raw["version"] = CONFIG_VERSION
     return raw
 

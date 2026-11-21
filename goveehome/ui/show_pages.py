@@ -334,8 +334,7 @@ class ScreenSyncPage(ShowPage):
     def build_top(self):
         group = Adw.PreferencesGroup(title="Colours")
         self.combo(group, "sync", "Colour pick", "mode", sc.MODES,
-                   "Accurate matches the screen, Vivid favours strong colours, "
-                   "Dominant shows the colour covering most of each zone")
+                   "Colourful lets the colours in a zone win over white and grey areas")
         self.slider(group, "sync", "Saturation", "saturation", 0.0, 2.0, 0.05, lambda v: f"{v * 100:.0f} %")
         self.slider(group, "sync", "Brightness", "brightness", 0.1, 1.5, 0.05, lambda v: f"{v * 100:.0f} %")
         self.slider(group, "sync", "Black level", "black_level", 0, 60, 1, lambda v: f"{v:.0f}")
@@ -356,6 +355,13 @@ class ScreenSyncPage(ShowPage):
                                   active=bool(self.config.sync.get("letterbox", True)))
         letterbox.connect("notify::active", lambda r, _p: self.config.set_sync("letterbox", r.get_active()))
         group.add(letterbox)
+
+        follow = Adw.SwitchRow(title="Follow the video",
+                               subtitle="When a video or game runs in a window, take the colours from it "
+                                        "instead of the screen edges",
+                               active=bool(self.config.sync.get("follow_video", True)))
+        follow.connect("notify::active", lambda r, _p: self.config.set_sync("follow_video", r.get_active()))
+        group.add(follow)
         self.page.add(group)
 
         speed = Adw.PreferencesGroup(title="Response")

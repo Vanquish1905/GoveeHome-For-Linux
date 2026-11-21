@@ -22,6 +22,7 @@ from goveehome.capture import CaptureError
 from goveehome.manager import DeviceManager
 from goveehome.models import Device
 from goveehome.sync import colors as sc
+from goveehome.sync.content import ContentTracker
 from goveehome.sync.letterbox import BarDetector, crop, map_rect
 from goveehome.sync.zones import Rect, layout_rects
 
@@ -97,6 +98,7 @@ class ScreenSource(Source):
         self._factory = backend_factory or (lambda name: capture.create(name, config))
         self.backend: capture.CaptureBackend | None = None
         self.detector = BarDetector()
+        self.tracker = ContentTracker()
         self.box = (0, 0, 0, 0)
         self.frame: np.ndarray | None = None
         self._black_run = 0
@@ -136,12 +138,11 @@ class ScreenSource(Source):
             self._black_run = 0
         self.frame = frame
         sync = self.config.sync
-        if sync.get("letterbox", True):
-            self.box = self.detector(frame)
-            work = crop(frame, self.box)
-        else:
-            self.box = (0, 0, 0, 0)
-            work = frame
+        bars = self.detector(frame) if sync.get("letterbox", True) else (0, 0, 0, 0)
+        video = self.tracker(frame) if sync.get("follow_video", True) else (0, 0, 0, 0)
+        # the moving picture wins (video in a window, game); otherwise black bars
+        self.box = video if video != (0, 0, 0, 0) else bars
+        work = crop(frame, self.box)
         analyzer = sc.FrameAnalyzer(work)
         mode = sync.get("mode", "accurate")
         saturation = float(sync.get("saturation", 1.15))
@@ -206,7 +207,7 @@ class LightEngine:
     # internals -----------------------------------------------------------------
     def _targets(self, kind: str) -> list[Target]:
         out = []
-        depth = float(self.config.sync.get("edge_depth", 0.15))
+        depth = float(self.config.sync.get("edge_depth", 0.25))
         for device in self.manager.list():
             if not device.can_stream:
                 continue

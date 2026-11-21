@@ -23,7 +23,7 @@ def test_new_defaults_merge_into_old_files(tmp_path):
     path.write_text(json.dumps({"version": 2, "sync": {"fps": 45}}))
     c = Config(path)
     assert c.sync["fps"] == 45
-    assert c.sync["mode"] == "accurate"
+    assert c.sync["mode"] == "vivid"
     assert c.section("music")["mode"] == "spectrum"
 
 
@@ -33,9 +33,22 @@ def test_old_tuning_is_reset(tmp_path):
     path.write_text(json.dumps({"sync": {"fps": 20, "smoothing": 0.5, "mode": "vivid", "monitor": 0,
                                          "backend": "x11"}, "cloud_api_key": "k"}))
     c = Config(path)
-    assert c.sync["smoothing"] == 0.04 and c.sync["mode"] == "accurate" and c.sync["monitor"] == 1
+    assert c.sync["smoothing"] == 0.04 and c.sync["mode"] == "vivid" and c.sync["monitor"] == 1
     assert c.sync["backend"] == "x11" and c["cloud_api_key"] == "k"
-    assert c["version"] == 2
+    assert c["version"] == 3
+
+
+def test_13_settings_get_colourful_defaults(tmp_path):
+    """1.3 configs had the exact average and thin edge zones, which turned lights white."""
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"version": 2, "sync": {"mode": "accurate", "edge_depth": 0.15,
+                                                       "saturation": 1.4}}))
+    c = Config(path)
+    assert c.sync["mode"] == "vivid" and c.sync["edge_depth"] == 0.25
+    assert c.sync["saturation"] == 1.4 and c.sync["follow_video"] is True
+    path.write_text(json.dumps({"version": 3, "sync": {"mode": "accurate", "edge_depth": 0.1}}))
+    c = Config(path)
+    assert c.sync["mode"] == "accurate" and c.sync["edge_depth"] == 0.1   # chosen after 1.4: kept
 
 
 def test_device_settings_are_copies(tmp_path):

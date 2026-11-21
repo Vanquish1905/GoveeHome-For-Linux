@@ -21,9 +21,9 @@ SRGB_GAMMA = 2.2
 _LUT_LINEAR = ((np.arange(256, dtype=np.float64) / 255.0) ** SRGB_GAMMA * 255.0).astype(np.float32)
 
 MODES = {
-    "accurate": "Accurate",
-    "vivid": "Vivid",
+    "vivid": "Colourful",
     "dominant": "Dominant colour",
+    "accurate": "Exact average",
 }
 
 
@@ -59,15 +59,23 @@ def average(lin: np.ndarray) -> np.ndarray:
     return lin.mean(axis=0)
 
 
-def vivid(lin: np.ndarray) -> np.ndarray:
-    """Mean weighted towards saturated pixels.
+def vivid(lin: np.ndarray, srgb: np.ndarray | None = None) -> np.ndarray:
+    """Mean that lets coloured pixels win over white, grey and black ones.
 
-    A red logo on a grey page should make the light red, not pinkish grey.
-    Grey content falls back to the plain mean.
+    Screens are full of white pages, grey UI and dark areas. Lights should
+    show the colour that is in a zone, not a pale mix of it with the white
+    around it. Saturated pixels count up to ~100 times more than grey ones;
+    a zone that really is grey or white still comes out grey or white.
     """
-    mx = lin.max(axis=1)
-    chroma = (mx - lin.min(axis=1)) / 255.0
-    weights = 1.0 + 12.0 * chroma * chroma + 0.5 * mx / 255.0
+    px = srgb.astype(np.float32) if srgb is not None else to_srgb(lin)
+    mx = px.max(axis=1)
+    mn = px.min(axis=1)
+    sat = (mx - mn) / np.maximum(mx, 1.0)
+    val = mx / 255.0
+    colourful = (sat > 0.25) & (val > 0.1)
+    if colourful.mean() < 0.03:
+        return lin.mean(axis=0)
+    weights = 0.04 + 4.0 * sat * sat * val
     return (lin * weights[:, None]).sum(axis=0) / weights.sum()
 
 
@@ -115,7 +123,7 @@ class FrameAnalyzer:
         ys, xs = zone_slice(self.frame.shape, rect)
         lin = self.linear[ys, xs].reshape(-1, 3)
         if mode == "vivid":
-            value = vivid(lin)
+            value = vivid(lin, self.frame[ys, xs].reshape(-1, 3))
         elif mode == "dominant":
             value = dominant(lin, self.frame[ys, xs].reshape(-1, 3))
         else:
