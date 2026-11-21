@@ -29,18 +29,25 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 - Fast: in testing on X11, about 35 ms from a change on the screen to the command leaving
   the PC; glitch frames are filtered out and films with black bars are handled
 - Works on Wayland (GNOME, KDE Plasma) through the screen share portal, on X11, and on
-  Sway/Hyprland through `grim`
+  Sway/Hyprland through `grim`. On KDE it asks for plain RGB frames, respects KWin's buffer
+  limit, and a *colour boost* restores the colour of the washed-out picture KDE delivers
+  when HDR is on
 
 **Music sync**: the lights react to whatever the PC plays, straight from the audio output
 (no microphone). Six modes (spectrum, mirrored spectrum, energy, beat pulse, bass glow,
 rolling) and 25 colour palettes, including your own colours.
 
-**Effects**: 67 effects rendered on the PC, no cloud needed, with live animated previews on
-the effects page. 30 of them are moving, multi-coloured animations (juggle, bouncing balls,
-ripple, confetti, colour waves, kaleidoscope, galaxy, double helix, comets in five colours,
-colour flows and more); the rest include rainbow, plasma, fire, candle, lava lamp, aurora,
-ocean, thunderstorm, snowfall, sunrise alarm, fireworks, twinkle, meteor, scanner, chase and
-Christmas. Speed, brightness, size, direction and up to three of your own colours.
+**Effects**: 102 effects rendered on the PC, no cloud needed, with live animated previews on
+the effects page:
+- *Animated* (42): moving, multi-coloured animations like juggle, bouncing balls, ripple,
+  confetti, meteor shower, colour rain, pacifica, fireflies, hyperspace, plasma ball,
+  kaleidoscope, galaxy, stained glass, disco ball, comets in five colours and colour flows
+- *Moods* (16): slowly flowing colour worlds like peacock, unicorn, synthwave, northern
+  lights, glacier, cherry blossom and autumn
+- *Colourful*, *Your colours*, *Nature* and *Party and seasons*: rainbow, plasma, fire,
+  candle, lava lamp, aurora, thunderstorm, snowfall, sunrise alarm, fireworks, Christmas,
+  Halloween, Valentine, New Year and more
+- Speed, brightness, size, direction and up to three of your own colours
 
 **For every light show you choose which lights take part**, one by one, all at once or by
 group.
@@ -124,6 +131,7 @@ goveehome-cli music --colors "#ff0050;#00b4ff"      # your own colours
 goveehome-cli effect list
 goveehome-cli effect aurora --speed 0.5
 goveehome-cli effect meteor --color "#ff2000" --size 40 --reverse
+goveehome-cli diagnose                              # check screen capture and lights
 goveehome-cli update                                # install the newest version from GitHub
 ```
 
@@ -136,7 +144,8 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
    through X shared memory, both in a GStreamer pipeline. A leaky queue makes sure only the
    newest frame is ever processed, so delay can't build up. Lanczos scaling shrinks the
    frame to 640×360 using every screen pixel, then it's averaged down to 160×90.
-2. **Find the picture.** A single black frame (which capture sometimes produces) is ignored,
+2. **Find the picture.** If the capture comes out washed out (KDE with HDR, pale content),
+   its saturation is restored first. A single black frame (which capture sometimes produces) is ignored,
    so the lights don't flash off. The app tracks where the picture moves; when a video plays
    in a window, the zones are laid over the video instead of the whole screen, so the white
    page around it doesn't turn the lights white. Letterbox bars of films are cut off.

@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.5.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.6.0-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -248,21 +248,28 @@ tropical, retro, club, Christmas, Halloween, white) or **Your colours**: up to s
 you choose under *Your colours* with the + and − buttons. Changing one of them switches to
 your palette. *Sensitivity* sets how strongly it reacts.
 
-**Effects** (sidebar, Ctrl+3) are 67 effects rendered on the PC, in five groups. Every card
+**Effects** (sidebar, Ctrl+3) are 102 effects rendered on the PC, in six groups. Every card
 plays a live preview of its effect while the page is open.
 
 - *Animated*: moving, multi-coloured animations: juggle, sweep, beat bands, confetti,
   bouncing balls, ripple, rainbow chase, colour blocks, RGB spin, candy stripes, neon chase,
   ping pong, colour waves, kaleidoscope, galaxy, rainbow sparkle, double helix, spectrum
   sweep, comets (rainbow, ice, pink, fire, green), colour flows (cotton candy, tropical,
-  inferno, mint and lime, cyber, deep sea) and breathing colours
+  inferno, mint and lime, cyber, deep sea), breathing colours, meteor shower, colour rain,
+  pacifica, rainbow bounce, breathing rainbow, hyperspace, plasma ball, electric, stained
+  glass, disco ball, heat wave, fireflies
+- *Moods*: slowly flowing colour worlds: peacock, unicorn, watermelon, cherry blossom,
+  lagoon, toxic, synthwave, rose gold, autumn, northern lights, morning glow, twilight,
+  jungle, glacier, berry, citrus
 - *Colourful*: rainbow, colour cycle, rainbow pulse, plasma, pastel dream
 - *Your colours*: solid, gradient, three colours, breathe, colour fade, wave, chase, colour
   wipe, meteor, scanner, heartbeat, strobe
 - *Nature*: candle, fire, lava lamp, aurora, ocean, underwater, sunset, sunrise alarm (slowly
   goes from dark to warm daylight over 10 minutes at speed 1), forest, starry night,
   thunderstorm, snowfall, digital rain
-- *Party and seasons*: party, disco, twinkle, fireworks, police, Christmas, Halloween
+- *Party and seasons*: party, disco, twinkle, fireworks, police, Christmas, Halloween,
+  Valentine, Easter, St Patrick's, New Year, red white and blue, festival of lights, winter
+  wonderland
 
 Click one to start it. **Options** apply live: speed, brightness, size (for moving things
 like meteor, scanner and waves), reverse direction, and up to three colours for the effects
@@ -409,6 +416,20 @@ Go through [Getting the colours to match](#getting-the-colours-to-match). With m
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
 
+**Screen sync on KDE Plasma: lights are white or grey**
+
+- **HDR:** if HDR is switched on for your screen (System Settings → Display & Monitor, the
+  *HDR* option of your screen), KDE's screen capture comes out washed out and dim. Version 1.6.0 and
+  newer detect that and bring the colour back with *Colour boost* (Screen sync → Colours,
+  on by default); the details line under the preview says "KDE HDR is on" and shows the
+  boost. If it still looks pale, raise *Saturation*, or switch HDR off while you use screen
+  sync.
+- **The share dialog:** when KDE asks what to share, pick the screen itself (not
+  "Full workspace" with several screens, and not a window or region).
+- **Report:** press *Copy report* on the Screen sync page while it runs and paste it into a
+  GitHub issue, or run `goveehome-cli diagnose` with something colourful on the screen. It
+  shows what KDE delivers (format, how colourful the picture is) and what each light gets.
+
 **Screen sync: the lights only change brightness, not colour**
 
 Update to 1.5.0 or newer. Older versions averaged each zone (and, for lights without segment
@@ -419,8 +440,8 @@ white. Now the strongest colour wins. Check that *Colour pick* is *Colourful* an
 Then look at the Screen sync page while it runs:
 
 - The line under the status says how much of the captured picture is colourful. If it says
-  0 % while your screen is clearly colourful, capture is the problem: open an issue on GitHub
-  with your desktop (GNOME / KDE, Wayland / X11) and what the line says.
+  0 % while your screen is clearly colourful, capture is the problem: press *Copy report*
+  and open an issue on GitHub with it.
 - Each light in the list has a colour strip showing exactly what it is being sent. If the
   strip is colourful but the light stays white, press *Identify* on the light's page. If the
   light shows red and blue there, raise *Saturation*. If it doesn't, the light doesn't take
