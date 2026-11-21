@@ -1,0 +1,112 @@
+import threading
+import time
+
+from goveehome.capture.pattern import PatternCapture
+from goveehome.config import Config
+from goveehome.manager import DeviceManager
+from goveehome.models import Device
+from goveehome.sync.engine import SyncEngine
+
+
+class RecordingLan:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def record(*args):
+            self.calls.append((name, *args))
+        return record
+
+
+def make_manager(tmp_path):
+    manager = DeviceManager(Config(tmp_path / "c.json"))
+    manager.lan = RecordingLan()
+    return manager
+
+
+def test_lan_scan_adds_device_with_model_name(tmp_path):
+    m = make_manager(tmp_path)
+    events = []
+    m.subscribe(lambda e, d, msg: events.append(e))
+    m._on_lan_scan({"ip": "10.0.0.5", "device": "AA:01", "sku": "H6199"})
+    d = m.get("AA:01")
+    assert d.ip == "10.0.0.5" and d.name.startswith("DreamView")
+    assert "added" in events
+    assert ("request_status", "10.0.0.5") in m.lan.calls
+
+
+def test_user_name_survives_rediscovery(tmp_path):
+    m = make_manager(tmp_path)
+    m._on_lan_scan({"ip": "10.0.0.5", "device": "AA:01", "sku": "H6199"})
+    m.rename(m.get("AA:01"), "Desk")
+    m._on_lan_scan({"ip": "10.0.0.6", "device": "AA:01", "sku": "H6199"})
+    assert m.get("AA:01").name == "Desk"
+    assert m.get("AA:01").ip == "10.0.0.6"
+
+
+def test_find(tmp_path):
+    m = make_manager(tmp_path)
+    m.devices["a"] = Device("a", name="Desk lamp", ip="10.0.0.1")
+    m.devices["b"] = Device("b", name="TV backlight", ip="10.0.0.2")
+    assert m.find("10.0.0.2").id == "b"
+    assert m.find("desk").id == "a"
+    assert m.find("nothing") is None
+
+
+def test_set_color_routes_over_lan(tmp_path):
+    m = make_manager(tmp_path)
+    d = m.devices["a"] = Device("a", ip="10.0.0.1")
+    m.set_color(d, (1, 2, 3))
+    assert ("color", "10.0.0.1", (1, 2, 3)) in m.lan.calls
+    assert d.state.color == (1, 2, 3)
+
+
+def test_stream_uses_razer_for_capable_models(tmp_path):
+    m = make_manager(tmp_path)
+    tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    bulb = m.devices["bulb"] = Device("bulb", sku="H6008", ip="10.0.0.2")
+    m.stream(tv, [(255, 0, 0)] * 10)
+    m.stream(bulb, [(255, 0, 0), (0, 0, 255)])
+    names = [c[0] for c in m.lan.calls]
+    assert names.count("stream_enable") == 1
+    assert ("color", "10.0.0.2", (127, 0, 127)) in m.lan.calls
+    m.stream_stop(tv)
+    assert ("stream_enable", "10.0.0.1", False) in m.lan.calls
+
+
+def test_engine_drives_lights(tmp_path):
+    m = make_manager(tmp_path)
+    m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")
+    m.devices["cloud"] = Device("cloud", sku="H6008", cloud=True)  # never streamed
+    m.config.sync["fps"] = 30
+    states, previews = [], []
+    stopped = threading.Event()
+
+    def on_state(running, msg):
+        states.append((running, msg))
+        if not running:
+            stopped.set()
+
+    engine = SyncEngine(m, on_preview=previews.append, on_state=on_state,
+                        backend_factory=lambda name: PatternCapture())
+    engine.start()
+    time.sleep(0.6)
+    engine.stop()
+    assert stopped.wait(3)
+    assert states[0] == (True, None) and states[-1] == (False, None)
+    frames = [c for c in m.lan.calls if c[0] == "stream_colors"]
+    assert len(frames) > 3
+    assert all(c[1] == "10.0.0.1" and len(c[2]) == 10 for c in frames)
+    assert previews and "cloud" not in previews[-1].targets
+    assert m.lan.calls[-1] == ("stream_enable", "10.0.0.1", False)
+
+
+def test_engine_reports_missing_lights(tmp_path):
+    m = make_manager(tmp_path)
+    result = []
+    done = threading.Event()
+    engine = SyncEngine(m, on_state=lambda r, msg: (result.append(msg), done.set()),
+                        backend_factory=lambda name: PatternCapture())
+    engine.start()
+    assert done.wait(3)
+    assert "No lights" in result[0]
