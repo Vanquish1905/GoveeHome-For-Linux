@@ -31,7 +31,13 @@ class PreviewArea(Gtk.Overlay):
         self.zones = Gtk.DrawingArea()
         self.zones.set_draw_func(self._draw)
         self.add_overlay(self.zones)
-        self.placeholder = Gtk.Label(label=placeholder, wrap=True, justify=Gtk.Justification.CENTER)
+        # Centred, at most two lines: a wrapped label that is allowed to fill the
+        # overlay can end up taller than the preview and be drawn below it
+        # (happens with bigger fonts, e.g. on KDE).
+        self.placeholder = Gtk.Label(label=placeholder, wrap=True, justify=Gtk.Justification.CENTER,
+                                     valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER,
+                                     lines=2, ellipsize=3, max_width_chars=60,
+                                     margin_start=16, margin_end=16, margin_top=8, margin_bottom=8)
         self.placeholder.add_css_class("dim-label")
         self.add_overlay(self.placeholder)
         self._targets: dict = {}
@@ -98,7 +104,13 @@ class LightRow(Adw.ActionRow):
             self._set_switch(False)
             return
         self.set_sensitive(True)
-        if self.page.kind == "sync" and self.page.config.sync.get("style", "classic") == "classic":
+        style = self.page.config.sync.get("style", "grid") if self.page.kind == "sync" else ""
+        if style == "grid" and settings["streaming"] and settings["segments"] > 1:
+            layout = LAYOUTS.get(settings["layout"] or "whole", "")
+            if (settings["layout"] or "whole") == "whole":
+                layout = "around the screen"
+            self.set_subtitle(f"{settings['segments']} segments · 9 parts · {layout}")
+        elif style in ("grid", "classic"):
             self.set_subtitle("Whole light: screen colour and brightness")
         elif self.page.kind == "sync":
             layout = LAYOUTS.get(settings["layout"], settings["layout"])
@@ -347,10 +359,12 @@ class ScreenSyncPage(ShowPage):
         from goveehome.sync import classic
         style = Adw.PreferencesGroup(
             title="Style",
-            description="“Whole light” works like GoveeScreen on Windows: every light shows the colour "
-                        "of the screen, and its brightness follows how bright the screen is. "
-                        "“Zones” gives segment lights a colour per part of the screen.")
-        styles = {"classic": "Whole light, like GoveeScreen", "zones": "Zones per segment"}
+            description="“9 parts” splits the screen into a 3×3 grid: every segment shows the average "
+                        "colour of the part it sits next to (set the mounting on the light's page). "
+                        "Lights that show one colour get the colour and brightness of the screen. "
+                        "“Whole light” gives every light one colour, like GoveeScreen on Windows.")
+        styles = {"grid": "9 parts of the screen (3×3)", "classic": "Whole light, like GoveeScreen",
+                  "zones": "Zones per segment (advanced)"}
         row = self.combo(style, "sync", "Style", "style", styles)
         row.connect("notify::selected", lambda *_: (self._update_style(), self._restart_if_running()))
         self.classic_rows = [
@@ -447,7 +461,7 @@ class ScreenSyncPage(ShowPage):
             self.app.start_show("sync")
 
     def _update_style(self):
-        classic_on = self.config.sync.get("style", "classic") == "classic"
+        classic_on = self.config.sync.get("style", "grid") in ("classic", "grid")
         for row in self.classic_rows:
             row.set_visible(classic_on)
         for group in self.zone_groups:
@@ -650,7 +664,7 @@ def _hex(rgb) -> str:
 class MusicPage(ShowPage):
     kind = "music"
     page_title = "Music"
-    placeholder = "Play something and press Start. The lights follow what your speakers play, no microphone needed."
+    placeholder = "Play something and press Start. No microphone needed."
     preview_ratio = 16 / 6
     preview_height = 180
     MAX_COLORS = 6
@@ -748,9 +762,9 @@ class MusicPage(ShowPage):
 class EffectsPage(ShowPage):
     kind = "effects"
     page_title = "Effects"
-    placeholder = "Pick an effect. It runs on your PC, so it works without the cloud."
+    placeholder = "Pick an effect below to start it."
     preview_ratio = 16 / 3
-    preview_height = 90
+    preview_height = 110
 
     def params(self) -> fx.Params:
         return fx.params_from(self.config.section("effects"))
