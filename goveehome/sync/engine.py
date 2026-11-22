@@ -22,6 +22,7 @@ from goveehome.capture import CaptureError
 from goveehome.manager import DeviceManager
 from goveehome.models import Device
 from goveehome.sync import colors as sc
+from goveehome.capture.calibrate import apply_order
 from goveehome.sync.content import ContentTracker
 from goveehome.sync.letterbox import BarDetector, crop, map_rect
 from goveehome.sync.zones import Rect, layout_rects
@@ -151,7 +152,7 @@ class ScreenSource(Source):
     BLACK_CONFIRM = 3      # black frames needed in a row before we believe them
 
     def render(self, targets, now):
-        frame = self.backend.grab()
+        frame = apply_order(self.backend.grab(), self.config.sync.get("channel_order"))
         self.grabbed_at = time.monotonic()
         self.capture_age = getattr(self.backend, "last_age", None)
         # Capture sometimes hands out a single empty (black) frame, e.g. when

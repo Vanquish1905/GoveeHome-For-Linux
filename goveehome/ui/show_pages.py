@@ -433,6 +433,15 @@ class ScreenSyncPage(ShowPage):
         restore = Adw.SwitchRow(title="Restore colours when stopping", active=sync["restore_on_stop"])
         restore.connect("notify::active", lambda r, _p: self.config.set_sync("restore_on_stop", r.get_active()))
         group.add(restore)
+
+        self.check_row = Adw.ActionRow(title="Check capture colours")
+        self._update_check_row()
+        check = Gtk.Button(label="Check", valign=Gtk.Align.CENTER)
+        check.add_css_class("flat")
+        check.connect("clicked", self._check_colours)
+        self.check_button = check
+        self.check_row.add_suffix(check)
+        group.add(self.check_row)
         if "portal" in found:
             forget = Adw.ActionRow(title="Shared screen", subtitle="The choice from the share dialog is remembered.")
             btn = Gtk.Button(label="Ask again", valign=Gtk.Align.CENTER)
@@ -471,6 +480,62 @@ class ScreenSyncPage(ShowPage):
             self.status.set_label("Starting… If a screen share dialog opens, pick the screen the lights are behind.")
             return
         super().on_toggle()
+
+    # capture colour check ------------------------------------------------------------
+    def _update_check_row(self):
+        from goveehome.capture.calibrate import ORDER_NAMES
+        order = tuple(self.config.sync.get("channel_order") or (0, 1, 2))
+        if order == (0, 1, 2):
+            text = ("Shows red, green and blue on the screen for a few seconds and checks they are "
+                    "captured as red, green and blue. Run it if the lights show other colours than the screen.")
+        else:
+            text = f"Capture had {ORDER_NAMES.get(order, 'reordered channels')}; this is corrected now."
+        self.check_row.set_subtitle(text)
+
+    def _check_colours(self, *_):
+        from goveehome.capture import calibrate
+        dialog = Adw.MessageDialog(
+            transient_for=self.window, modal=True, heading="Check capture colours",
+            body="Your screen will turn red, green and blue for about four seconds. If KDE or GNOME "
+                 "asks which screen to share, pick the one the lights are behind. Don't touch the "
+                 "mouse until it's done.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", "Start")
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("go")
+        dialog.set_close_response("cancel")
+
+        def respond(_d, response):
+            if response != "go":
+                return
+            was_running = self.engine.running
+            if was_running:
+                self.engine.stop(wait=True)
+            self.check_button.set_sensitive(False)
+
+            def open_backend():
+                backend = capture.create(self.config.sync.get("backend", "auto"), self.config)
+                backend.open()
+                return backend
+
+            def done(order, message, measured):
+                self.check_button.set_sensitive(True)
+                if order is not None:
+                    self.config.set_sync("channel_order", list(order))
+                    if tuple(order) == (0, 1, 2):
+                        self.window.toast("Capture colours are correct")
+                    else:
+                        self.window.toast(f"Capture had {message}. Fixed, screen sync now uses the right colours.")
+                else:
+                    self.window.toast(message)
+                self._update_check_row()
+                if was_running:
+                    self.app.start_show("sync")
+                return False
+
+            calibrate.run_check(open_backend, lambda line: None, done)
+        dialog.connect("response", respond)
+        dialog.present()
 
     def _forget_portal(self, *_):
         self.config.set("portal_restore_token", "")

@@ -36,6 +36,7 @@ DEFAULTS: dict = {
         "follow_video": True,     # fit the zones onto a video playing in a window
         "auto_boost": True,       # bring back colour when the capture is washed out
         "vividness": 4.0,         # 1 = colours as on screen, higher = purer light colours
+        "channel_order": [0, 1, 2],  # fixes captures with swapped colour channels (see capture.calibrate)
         "restore_on_stop": True,
     },
     "music": {

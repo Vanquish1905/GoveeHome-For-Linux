@@ -160,3 +160,36 @@ def test_pipeline_falls_back_when_the_preferred_format_is_refused():
     assert cap.variant == "fallback"
     assert frame[..., 2].mean() > 200 and frame[..., 0].mean() < 30
     assert "I420" in cap.source_format
+
+
+def test_capture_colour_order_detection():
+    from goveehome.capture import calibrate
+    ok = {"red": (240, 10, 5), "green": (8, 230, 12), "blue": (4, 9, 250)}
+    assert calibrate.best_order(ok)[0] == (0, 1, 2)
+    swapped = {"red": (5, 10, 240), "green": (8, 230, 12), "blue": (250, 9, 4)}   # KWin bug
+    order, message = calibrate.best_order(swapped)
+    assert order == (2, 1, 0) and "red and blue" in message
+    frame = np.zeros((4, 4, 3), np.uint8)
+    frame[..., 2] = 200                                    # "blue" in the capture = red on screen
+    fixed = calibrate.apply_order(frame, order)
+    assert fixed[0, 0].tolist() == [200, 0, 0]
+    unclear = {"red": (120, 110, 115), "green": (8, 230, 12), "blue": (4, 9, 250)}
+    assert calibrate.best_order(unclear)[0] is None
+
+
+def test_capture_check_end_to_end_with_a_swapping_capture():
+    """A fake capture that swaps red and blue, like the KWin bug."""
+    from goveehome.capture import calibrate
+    screen = {"rgb": (0, 0, 0)}
+
+    class Swapping:
+        def grab(self):
+            f = np.zeros((90, 160, 3), np.uint8)
+            f[:] = screen["rgb"]
+            return f[..., ::-1].copy()
+
+    measured = calibrate.measure(Swapping(), lambda rgb: screen.update(rgb=rgb or (0, 0, 0)), settle=0.01)
+    order, _ = calibrate.best_order(measured)
+    assert order == (2, 1, 0)
+    screen["rgb"] = (255, 120, 0)                          # orange on screen
+    assert calibrate.apply_order(Swapping().grab(), order)[0, 0].tolist() == [255, 120, 0]

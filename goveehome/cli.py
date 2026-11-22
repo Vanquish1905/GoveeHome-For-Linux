@@ -284,12 +284,55 @@ def cmd_test_light(args) -> int:
     return 0
 
 
+def check_capture_colours(config) -> None:
+    """Show red, green and blue fullscreen, capture them and fix a swapped channel order."""
+    try:
+        import gi
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+        if not Gtk.init_check():
+            raise RuntimeError("no display")
+    except Exception as exc:
+        print(f"Capture colour check skipped ({exc}).")
+        return
+    from goveehome import capture
+    from goveehome.capture import calibrate
+
+    loop = GLib.MainLoop()
+    result: dict = {}
+
+    def open_backend():
+        backend = capture.create(config.sync.get("backend", "auto"), config)
+        backend.open()
+        return backend
+
+    def done(order, message, measured):
+        result.update(order=order, message=message)
+        loop.quit()
+        return False
+
+    print("\nChecking capture colours: the screen turns red, green and blue for a few seconds…")
+    GLib.idle_add(lambda: (calibrate.run_check(open_backend, lambda line: print("  " + line), done), False)[1])
+    loop.run()
+    order = result.get("order")
+    if order is None:
+        print("  " + result.get("message", "no result"))
+        return
+    config.set_sync("channel_order", list(order))
+    if tuple(order) == (0, 1, 2):
+        print("  Capture colours are correct.")
+    else:
+        print(f"  Capture had {result['message']}. Fixed: screen sync now corrects it.")
+
+
 def cmd_diagnose(args) -> int:
     from goveehome import diagnostics
     config = Config()
     if args.backend:
         config.sync["backend"] = args.backend
     print(diagnostics.run_capture_check(config, args.seconds))
+    if not args.no_colour_check:
+        check_capture_colours(config)
     manager = _manager(args)
     _wait_for_devices(manager, args.timeout)
     print("")
@@ -323,6 +366,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--backend", choices=[b for b in capture.BACKENDS if b != "auto"])
     s.add_argument("--seconds", type=float, default=4.0)
     s.add_argument("--no-test", action="store_true", help="skip the colour test of the lights")
+    s.add_argument("--no-colour-check", action="store_true",
+                   help="skip checking that the capture delivers the right colours")
     s.set_defaults(func=cmd_diagnose)
 
     s = sub.add_parser("test-light", help="find out how a light shows colours and set it up")

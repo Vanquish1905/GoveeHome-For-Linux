@@ -87,7 +87,10 @@ def strongest_colour(srgb: np.ndarray, lin: np.ndarray, bins: int = 36, reach: i
     colourful = (sat > 0.25) & (val > 0.1)
     if colourful.mean() < min_share:
         return lin.mean(axis=0)
-    weights = sat * sat * val
+    # How much each pixel counts when choosing the colour family: saturation
+    # (not squared) times brightness, so a big, moderately coloured area beats
+    # a small, very saturated spot like a blue icon or a UI accent.
+    weights = sat * val
     idx = (hue * bins).astype(np.int32) % bins
     hist = np.bincount(idx[colourful], weights=weights[colourful], minlength=bins)
     # circular smoothing so a colour sitting on a bin border isn't split
@@ -95,7 +98,7 @@ def strongest_colour(srgb: np.ndarray, lin: np.ndarray, bins: int = 36, reach: i
     centre = int(window.argmax())
     dist = np.abs(((idx - centre) + bins // 2) % bins - bins // 2)
     chosen = colourful & (dist <= reach)
-    w = weights[chosen] + 1e-6
+    w = (weights * sat)[chosen] + 1e-6         # inside the family, purer pixels count more
     return (lin[chosen] * w[:, None]).sum(axis=0) / w.sum()
 
 
