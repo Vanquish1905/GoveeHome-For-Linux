@@ -40,6 +40,9 @@ COLOR_DEADBAND = 2                # per channel; smaller changes aren't visible 
 SMOOTHING_ALPHA = 0.35            # per 33 ms, corrected for the real time between frames
 
 INTENSITY = {1: 0.5, 2: 1.0, 3: 2.0, 4: None}   # 4 = always full brightness
+STRENGTH_LABELS = {0: "Off (exactly like GoveeScreen)", 1: "Light", 2: "Medium", 3: "Strong", 4: "Full"}
+STRENGTH_CURVE = {0: None, 1: 1.6, 2: 2.5, 3: 4.0, 4: 9.0}
+NEUTRAL = 0.04       # below this saturation the screen counts as white / grey
 INTENSITY_LABELS = {1: "50 %", 2: "100 %", 3: "200 %", 4: "Max"}
 COLOR_MODES = {"average": "Average colour", "dominant": "Dominant colour"}
 
@@ -111,6 +114,32 @@ def dominant(px: np.ndarray, average: tuple[int, int, int]) -> tuple[int, int, i
     share = colourful / len(px)
     t = float(np.clip((share - MIN_COLOR_SHARE) / (FULL_COLOR_SHARE - MIN_COLOR_SHARE), 0, 1))
     return tuple(int(np.clip(round(a + (d - a) * t), 0, 255)) for a, d in zip(average, target))
+
+
+def strengthen(color: FrameColor, level: int) -> FrameColor:
+    """The screen's colour at full strength; its brightness is sent on its own.
+
+    Screen averages are pale mixes, (120, 154, 141) for a nature scene, which a
+    light shows as almost white. Since the brightness already travels as a
+    separate command, the colour can be sent at full value: same hue, the
+    saturation raised along 1 - (1 - s) ** k. Grey and white stay white.
+    """
+    k = STRENGTH_CURVE.get(level)
+    if k is None:
+        return color
+    c = np.array([color.r, color.g, color.b], dtype=np.float64)
+    mx, mn = c.max(), c.min()
+    if mx < 6:
+        return FrameColor(0, 0, 0, color.brightness)
+    sat = (mx - mn) / mx
+    if sat < NEUTRAL:
+        return FrameColor(255, 255, 255, color.brightness)
+    ramp = (sat - NEUTRAL) / (1 - NEUTRAL)
+    new_sat = max(sat, 1 - (1 - ramp) ** k)
+    hue_part = (c - mn) / (mx - mn)                 # 0..1 per channel, keeps the hue
+    out = 255 * (1 - new_sat) + hue_part * 255 * new_sat
+    r, g, b = (int(round(v)) for v in np.clip(out, 0, 255))
+    return FrameColor(r, g, b, color.brightness)
 
 
 def scale_brightness(percent: float, level: int) -> float:
@@ -208,7 +237,8 @@ class ClassicScreenSource(Source):
         panel = float(self.options.get("skip_panel", 0.035))
         if panel > 0:                      # the taskbar / panel isn't part of the picture
             work = frame[: max(1, int(round(frame.shape[0] * (1 - panel))))]
-        color, average = analyze(work, self.options.get("classic_mode", "average"))
+        color, average = analyze(work, self.options.get("classic_mode", "dominant"))
+        color = strengthen(color, int(self.options.get("colour_strength", 3)))
         self.color = color
         level = int(self.options.get("intensity", 2))
         smooth = bool(self.options.get("smooth", True))

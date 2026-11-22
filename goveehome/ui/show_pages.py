@@ -359,6 +359,14 @@ class ScreenSyncPage(ShowPage):
         ]
         levels = {str(k): v for k, v in classic.INTENSITY_LABELS.items()}
         values = self.config.sync
+        strength = Adw.ComboRow(title="Colour strength",
+                                subtitle="Screen colours are pale mixes that lights show as white. "
+                                         "Stronger shows the screen's colour more clearly.")
+        strength.set_model(Gtk.StringList.new(list(classic.STRENGTH_LABELS.values())))
+        strength.set_selected(int(values.get("colour_strength", 3)))
+        strength.connect("notify::selected", lambda r, _p: self.config.set_sync("colour_strength", r.get_selected()))
+        style.add(strength)
+        self.classic_rows.append(strength)
         intensity = Adw.ComboRow(title="Intensity", subtitle="How bright the light gets compared to the screen")
         intensity.set_model(Gtk.StringList.new(list(levels.values())))
         intensity.set_selected(max(0, int(values.get("intensity", 2)) - 1))
@@ -650,7 +658,12 @@ class MusicPage(ShowPage):
     def build_top(self):
         group = Adw.PreferencesGroup(title="Style")
         self.combo(group, "music", "Mode", "mode", music.MODES)
-        self.slider(group, "music", "Sensitivity", "sensitivity", 0.3, 2.5, 0.05, lambda v: f"{v * 100:.0f} %")
+        self.combo(group, "music", "Feel", "feel", music.FEELS,
+                   "Flowing glides with the music, Jumpy flashes and jumps on every beat")
+        sens = self.slider(group, "music", "Sensitivity", "sensitivity", 0.3, 2.5, 0.05,
+                           lambda v: f"{v * 100:.0f} %")
+        sens.set_tooltip_text("Low: only strong peaks and clear beats. High: quiet details move the lights "
+                              "too, and beats are picked up more easily. Brightness is a separate slider.")
         self.slider(group, "music", "Brightness", "brightness", 0.1, 1.0, 0.05, lambda v: f"{v * 100:.0f} %")
         self.page.add(group)
 

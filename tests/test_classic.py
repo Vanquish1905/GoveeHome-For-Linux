@@ -104,3 +104,25 @@ def test_config_migration_switches_to_classic(tmp_path):
     path = tmp_path / "c.json"
     path.write_text(json.dumps({"version": 4, "sync": {"style": "zones"}}))
     assert Config(path).sync["style"] == "classic"
+
+
+def test_colour_strength_shows_the_screen_colour_not_white():
+    pale = classic.FrameColor(120, 154, 141, 57.0)          # nature scene average
+    strong = classic.strengthen(pale, 3)
+    assert strong.g == 255 and strong.r < 130 and strong.brightness == 57.0
+    assert (strong.g - strong.r) > 3 * (pale.g - pale.r)       # much clearer colour
+    off = classic.strengthen(pale, 0)
+    assert (off.r, off.g, off.b) == (120, 154, 141)           # off = exactly like GoveeScreen
+    white = classic.strengthen(classic.FrameColor(235, 235, 236, 90.0), 3)
+    assert (white.r, white.g, white.b) == (255, 255, 255)
+    black = classic.strengthen(classic.FrameColor(2, 2, 3, 0.5), 4)
+    assert (black.r, black.g, black.b) == (0, 0, 0)
+
+
+def test_colour_strength_keeps_the_hue():
+    import colorsys
+    for rgb in [(200, 150, 120), (40, 52, 60), (180, 110, 90), (90, 60, 140)]:
+        before = colorsys.rgb_to_hsv(*(v / 255 for v in rgb))[0]
+        out = classic.strengthen(classic.FrameColor(*rgb, 50.0), 3)
+        after = colorsys.rgb_to_hsv(out.r / 255, out.g / 255, out.b / 255)[0]
+        assert abs(before - after) < 0.02 or abs(before - after) > 0.98

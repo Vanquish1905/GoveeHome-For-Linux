@@ -11,7 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-CONFIG_VERSION = 5
+CONFIG_VERSION = 6
 
 DEFAULTS: dict = {
     "version": CONFIG_VERSION,
@@ -24,7 +24,8 @@ DEFAULTS: dict = {
     "gamma": 2.0,                 # LED gamma used by all light shows, 1.0 = off
     "sync": {
         "style": "classic",       # "classic": one colour + brightness per light (GoveeScreen), "zones": per segment
-        "classic_mode": "average",  # classic style: "average" or "dominant"
+        "classic_mode": "dominant",  # classic style: "average" or "dominant"
+        "colour_strength": 3,     # classic style: 0 = colours as on screen ... 4 = full colour
         "intensity": 2,           # classic style: 1 = 50 %, 2 = 100 %, 3 = 200 %, 4 = max
         "smooth": True,           # classic style: smooth transitions
         "skip_panel": 0.035,      # classic style: share of the screen bottom left out (taskbar / panel)
@@ -46,6 +47,7 @@ DEFAULTS: dict = {
     },
     "music": {
         "mode": "spectrum",
+        "feel": "flowing",        # "flowing": colours glide with the music, "jumpy": flashes and jumps on beats
         "palette": "rainbow",
         "colors": ["#ff0050", "#00b4ff", "#ffd200"],   # for the "custom" palette
         "sensitivity": 1.0,
@@ -114,6 +116,10 @@ def _migrate(raw: dict) -> dict:
     if raw.get("version", 1) < 5 and isinstance(raw.get("sync"), dict):
         # 1.8.2 makes the GoveeScreen style the default screen sync
         raw["sync"]["style"] = "classic"
+    if raw.get("version", 1) < 6 and isinstance(raw.get("sync"), dict):
+        # 1.8.3: screen averages are pale, lights showed them as white
+        if raw["sync"].get("classic_mode", "average") == "average":
+            raw["sync"]["classic_mode"] = "dominant"
     raw["version"] = CONFIG_VERSION
     return raw
 
