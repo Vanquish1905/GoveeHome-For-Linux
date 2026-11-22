@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.2" date="2026-11-22">
+      <description>
+        <p>New default screen sync style "Whole light, like GoveeScreen": each light shows the
+        colour of the screen and its brightness follows the screen.</p>
+      </description>
+    </release>
     <release version="1.8.1" date="2026-11-22">
       <description>
         <p>Check capture colours: detects and fixes screen captures with swapped colour

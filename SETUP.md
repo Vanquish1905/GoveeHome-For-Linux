@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.1-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.2-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -133,7 +133,22 @@ like `ihoment_H6199_XXXX`.
 
 ## 5. Set up screen sync
 
-### Tell the app how each light is mounted
+### Choose the style
+
+Screen sync → **Style**:
+
+- **Whole light, like GoveeScreen** (the default): each light shows the colour of the
+  screen and its brightness follows how bright the screen is, exactly like GoveeScreen on
+  Windows. Works with every light that has LAN control and needs no setup. Options:
+  *Colour* (average or dominant), *Intensity* (50 %, 100 %, 200 %, max), *Smooth
+  transitions*, *Leave out the panel / taskbar*.
+- **Zones per segment**: segment lights get a colour per part of the screen, depending on
+  how they're mounted (next section). The settings for it (colour pick, vividness, smoothing,
+  edge depth) only show when this style is selected.
+
+If you're not sure, keep *Whole light*. You can switch while screen sync runs.
+
+### Tell the app how each light is mounted (zones style)
 
 Open a light and scroll to **Light shows**:
 
@@ -417,6 +432,12 @@ green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it
 Go through [Getting the colours to match](#getting-the-colours-to-match). With more than one
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
+
+**Screen sync: the colours don't match the screen**
+
+Make sure *Style* is **Whole light, like GoveeScreen** (the default since 1.8.2). It shows
+what is really on the screen, averaged, and sets the brightness to match. With *Colour:
+Dominant* it prefers the most present vivid colour.
 
 **Screen sync: the lights show different colours than the screen (e.g. blue instead of red)**
 

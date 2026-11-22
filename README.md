@@ -14,7 +14,12 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 - Power, brightness, colour, white temperature, saved colours and sleep timers
 - Groups, plus an *All lights* group
 
-**Screen sync**: the lights take their colours from your screen
+**Screen sync**: the lights take their colours from your screen, in one of two styles:
+- *Whole light, like GoveeScreen* (the default): every light shows the colour of the screen
+  (its average, or its most present vivid colour) and its brightness follows how bright the
+  screen is. This is a port of the screen sync of [GoveeScreen](https://github.com/Baba0bab/GoveeScreen)
+  for Windows, and it works with every Govee light that has LAN control
+- *Zones per segment*: segment lights get one colour per part of the screen they sit next to
 - Segment capable lights (TV backlights, light bars, RGBIC strips, ...) get one colour per
   segment from the part of the screen they sit next to; other lights get the colour of
   their zone
@@ -151,6 +156,16 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
 
 ## How screen sync works
 
+**Whole light (default).** Like GoveeScreen: the frame is captured (see 1. below), black bars
+at the top and bottom and the panel / taskbar strip are left out, and the rest is averaged
+(or its dominant vivid hue is taken, sliding back to the average when little of the picture
+is colourful). The colour is sent as it is with a plain colour command, and the light's
+brightness is set separately to the brightness of the picture (×0.5, ×1, ×2 or full with
+*Intensity*). Changes are smoothed (35 % per 33 ms), sent at most 30 times a second and only
+when they're big enough to see.
+
+**Zones per segment.**
+
 1. **Capture.** On Wayland the screen comes through `xdg-desktop-portal` and PipeWire, on X11
    through X shared memory, both in a GStreamer pipeline. A leaky queue makes sure only the
    newest frame is ever processed, so delay can't build up. Lanczos scaling shrinks the
@@ -223,6 +238,8 @@ These projects and docs made this possible and are worth a look:
 - [homebridge-govee](https://github.com/homebridge-plugins/homebridge-govee) (Bluetooth and
   LAN command reference)
 - The HyperHDR and Hyperion communities, for figuring out the DreamView streaming frames
+- [GoveeScreen](https://github.com/Baba0bab/GoveeScreen), the Windows app whose screen sync the
+  *Whole light* style is ported from
 - [govee-h6056](https://tessl.io/registry/jbaruch/govee-h6056) notes on the H6056 segment
   layout
 
