@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.4-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.5-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -137,8 +137,9 @@ like `ihoment_H6199_XXXX`.
 
 Screen sync → **Style**:
 
-- **9 parts of the screen (3×3)** (the default): the screen is split into nine parts and
-  each part's average colour is tracked. Every segment of a light shows the colour of the
+- **Parts of the screen** (the default): the screen is split into 50 parts (10×5) and
+  each part's colour is tracked. Switch *Detailed (50 parts)* off for 9 bigger parts (3×3),
+  like version 1.8.4. Every segment of a light shows the colour of the
   part it sits next to, so set the *Mounting* on the light's page (next section); a strip
   left on *Whole screen* runs around the screen, up the left, across the top, down the
   right and along the bottom. Lights that only show one colour get the colour and the
@@ -155,7 +156,7 @@ Screen sync → **Style**:
   how they're mounted (next section). The settings for it (colour pick, vividness, smoothing,
   edge depth) only show when this style is selected.
 
-If you're not sure, keep *9 parts*. You can switch while screen sync runs. If segment lights
+If you're not sure, keep *Parts of the screen*. You can switch while screen sync runs. If segment lights
 show one colour only, run the *colour test* on the light's page: it finds out whether the
 light takes a colour per segment.
 

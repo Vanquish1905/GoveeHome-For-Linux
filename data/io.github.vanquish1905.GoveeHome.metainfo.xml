@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.5" date="2026-11-22">
+      <description>
+        <p>More colourful screen sync per segment, and 50 screen parts for more detail, with a
+        switch back to 9 parts.</p>
+      </description>
+    </release>
     <release version="1.8.4" date="2026-11-22">
       <description>
         <p>Screen sync splits the screen into 9 parts and sends each segment the colour of the

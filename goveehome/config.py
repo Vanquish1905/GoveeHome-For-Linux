@@ -23,7 +23,8 @@ DEFAULTS: dict = {
     "device_settings": {},        # device id -> per device overrides, see device_settings()
     "gamma": 2.0,                 # LED gamma used by all light shows, 1.0 = off
     "sync": {
-        "style": "grid",          # "grid": 9 screen parts, "classic": one colour + brightness per light, "zones"
+        "style": "grid",          # "grid": screen parts, "classic": one colour + brightness per light, "zones"
+        "grid_detail": True,      # grid style: True = 50 parts (10 x 5), False = 9 parts (3 x 3)
         "classic_mode": "dominant",  # classic style: "average" or "dominant"
         "colour_strength": 3,     # classic style: 0 = colours as on screen ... 4 = full colour
         "intensity": 2,           # classic style: 1 = 50 %, 2 = 100 %, 3 = 200 %, 4 = max

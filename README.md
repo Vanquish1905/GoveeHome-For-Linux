@@ -15,9 +15,10 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 - Groups, plus an *All lights* group
 
 **Screen sync**: the lights take their colours from your screen, in one of three styles:
-- *9 parts of the screen* (the default): the screen is split into a 3×3 grid and each part's
-  average colour is tracked. Every segment of a light shows the colour of the part it sits
-  next to (from the light's mounting); lights that show one colour get the colour and the
+- *Parts of the screen* (the default): the screen is split into 50 parts (10×5), or 9 parts
+  (3×3) with *Detailed* off, and each part's colour is tracked. Every segment of a light
+  shows the colour of the part it sits next to (from the light's mounting), at full colour
+  with the brightness of the screen; lights that show one colour get the colour and the
   brightness of the screen
 - *Whole light, like GoveeScreen*: every light shows the colour of the screen (its most
   present vivid colour, or its average) and its brightness follows how bright the screen
@@ -173,11 +174,14 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
 
 ## How screen sync works
 
-**9 parts (default).** The frame (see 1. below) loses the panel / taskbar strip and black
-bars at the top and bottom, and is split into a 3×3 grid. Each part's average colour is
-taken and strengthened like below. A light that streams segments gets, for every segment,
-the colour of the part its zone falls into (from its mounting; *Whole screen* lights run
-around the screen), dimmed to that part's brightness. Other lights get one colour and the
+**Parts of the screen (default).** The frame (see 1. below) loses the panel / taskbar strip
+and black bars at the top and bottom, and is split into 10×5 = 50 parts (*Detailed* on) or
+3×3 = 9 parts. Each part's colour is picked like in *Whole light* (dominant or average) and
+strengthened. A light that streams segments gets, for every segment, the colour of the part
+its zone falls into (from its mounting; zones at an edge of the screen take the part right
+at that edge, *Whole screen* lights run around the screen). The colour stays at full
+strength; its brightness is the brightness of the screen mixed 60/40 with that of the part,
+so dark parts are a little dimmer without turning grey. Other lights get one colour and the
 brightness of the screen, as in the *Whole light* style. Smoothing and sending as there.
 
 **Whole light.** Like GoveeScreen: the frame is captured (see 1. below), black bars

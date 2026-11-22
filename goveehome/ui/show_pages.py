@@ -109,7 +109,8 @@ class LightRow(Adw.ActionRow):
             layout = LAYOUTS.get(settings["layout"] or "whole", "")
             if (settings["layout"] or "whole") == "whole":
                 layout = "around the screen"
-            self.set_subtitle(f"{settings['segments']} segments · 9 parts · {layout}")
+            parts = "50 parts" if self.page.config.sync.get("grid_detail", True) else "9 parts"
+            self.set_subtitle(f"{settings['segments']} segments · {parts} · {layout}")
         elif style in ("grid", "classic"):
             self.set_subtitle("Whole light: screen colour and brightness")
         elif self.page.kind == "sync":
@@ -359,14 +360,21 @@ class ScreenSyncPage(ShowPage):
         from goveehome.sync import classic
         style = Adw.PreferencesGroup(
             title="Style",
-            description="“9 parts” splits the screen into a 3×3 grid: every segment shows the average "
-                        "colour of the part it sits next to (set the mounting on the light's page). "
+            description="“Parts of the screen” splits the screen into 50 parts (10×5) or 9 parts (3×3): "
+                        "every segment shows the colour of the part it sits next to (set the mounting "
+                        "on the light's page). "
                         "Lights that show one colour get the colour and brightness of the screen. "
                         "“Whole light” gives every light one colour, like GoveeScreen on Windows.")
-        styles = {"grid": "9 parts of the screen (3×3)", "classic": "Whole light, like GoveeScreen",
+        styles = {"grid": "Parts of the screen", "classic": "Whole light, like GoveeScreen",
                   "zones": "Zones per segment (advanced)"}
         row = self.combo(style, "sync", "Style", "style", styles)
         row.connect("notify::selected", lambda *_: (self._update_style(), self._restart_if_running()))
+        self.detail_row = Adw.SwitchRow(
+            title="Detailed (50 parts)",
+            subtitle="On: 50 parts (10×5) for more detail. Off: 9 parts (3×3) like before.",
+            active=bool(self.config.sync.get("grid_detail", True)))
+        self.detail_row.connect("notify::active", self._detail_changed)
+        style.add(self.detail_row)
         self.classic_rows = [
             self.combo(style, "sync", "Colour", "classic_mode", classic.COLOR_MODES,
                        "Dominant takes the most present vivid colour instead of the average"),
@@ -460,8 +468,15 @@ class ScreenSyncPage(ShowPage):
             self.engine.stop(wait=True)
             self.app.start_show("sync")
 
+    def _detail_changed(self, row, _pspec):
+        self.config.set_sync("grid_detail", row.get_active())
+        for light in getattr(self, "_rows", {}).values():
+            light.update()
+
     def _update_style(self):
-        classic_on = self.config.sync.get("style", "grid") in ("classic", "grid")
+        style = self.config.sync.get("style", "grid")
+        self.detail_row.set_visible(style == "grid")
+        classic_on = style in ("classic", "grid")
         for row in self.classic_rows:
             row.set_visible(classic_on)
         for group in self.zone_groups:

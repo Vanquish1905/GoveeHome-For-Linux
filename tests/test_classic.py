@@ -1,3 +1,4 @@
+import pytest
 """The GoveeScreen style screen sync (port of GoveeScreen's FrameAnalyzer / SyncEngine)."""
 
 import threading
@@ -120,7 +121,7 @@ def nine_colour_screen():
     return f, colours
 
 
-def test_grid_colours_are_the_average_of_each_part():
+def test_grid_colours_give_each_part_its_colour():
     f, colours = nine_colour_screen()
     cells = classic.grid_colours(f)
     for got, want in zip(cells, colours):
@@ -153,10 +154,11 @@ class Nine:
         return nine_colour_screen()[0]
 
 
-def test_grid_style_streams_part_colours_and_plain_lights_get_one_colour(tmp_path):
+@pytest.mark.parametrize("detail", [False, True])
+def test_grid_style_streams_part_colours_and_plain_lights_get_one_colour(tmp_path, detail):
     m = DeviceManager(Config(tmp_path / "c.json"))
     m.lan = Lan()
-    m.config.sync.update(style="grid", skip_panel=0.0, smooth=False, intensity=4)
+    m.config.sync.update(style="grid", grid_detail=detail, skip_panel=0.0, smooth=False, intensity=4)
     tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")        # streams 15 segments
     bulb = m.devices["bulb"] = Device("bulb", sku="H6008", ip="10.0.0.2")  # plain colour only
     done = threading.Event()
@@ -197,3 +199,29 @@ def test_colour_strength_keeps_the_hue():
         out = classic.strengthen(classic.FrameColor(*rgb, 50.0), 3)
         after = colorsys.rgb_to_hsv(out.r / 255, out.g / 255, out.b / 255)[0]
         assert abs(before - after) < 0.02 or abs(before - after) > 0.98
+
+
+def test_fifty_parts():
+    assert classic.grid_size({"grid_detail": True}) == (10, 5)
+    assert classic.grid_size({"grid_detail": False}) == (3, 3)
+    assert classic.grid_size({}) == (10, 5)
+    f = np.zeros((90, 160, 3), np.uint8)
+    f[:, :16] = (255, 0, 0)          # left tenth red
+    f[:, -16:] = (0, 0, 255)         # right tenth blue
+    cells = classic.grid_colours(f, "dominant", 10, 5)
+    assert len(cells) == 50
+    assert all(cells[r * 10].r == 255 and cells[r * 10].b == 0 for r in range(5))
+    assert all(cells[r * 10 + 9].b == 255 and cells[r * 10 + 9].r == 0 for r in range(5))
+    assert classic.cell_of((0.0, 0.4, 0.25, 0.6), 10, 5) == 20   # left edge zone -> left column
+    assert classic.cell_of((0.75, 0.4, 1.0, 0.6), 10, 5) == 29   # right edge zone -> right column
+    bars = classic.segment_cells({"segments": 10, "layout": "bars", "reverse": False}, 10, 5)
+    assert bars == [0, 10, 20, 30, 40, 9, 19, 29, 39, 49]
+    around = classic.segment_cells({"segments": 40, "layout": "whole", "reverse": False}, 10, 5)
+    assert len(set(around)) > 15                                 # many different parts
+
+
+def test_segment_colours_stay_strong_in_dark_parts():
+    # a dark red part on an otherwise bright screen: still clearly red, not grey and not off
+    dark_red = classic.strengthen(classic.FrameColor(60, 10, 10, 15.0), 3)
+    r, g, b = classic.segment_light(dark_red, 70.0, 2)
+    assert r > 120 and g < 10 and b < 10
