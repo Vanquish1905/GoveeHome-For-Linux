@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.0-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.1-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -417,6 +417,21 @@ green = top, yellow = bottom). Change *Mounting* or *Reverse direction* until it
 Go through [Getting the colours to match](#getting-the-colours-to-match). With more than one
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
+
+**Screen sync: the lights show different colours than the screen (e.g. blue instead of red)**
+
+Run **Check capture colours** (Screen sync → Capture → *Check*), or in a terminal:
+
+```bash
+goveehome-cli diagnose
+```
+
+Your screen turns red, green and blue for a few seconds while GoveeHome captures it. Some
+desktops, KDE Plasma in particular, hand out the picture with colour channels in the wrong
+order (red and blue swapped). The check sees that and corrects it from then on; the row
+then says what was fixed. If it says the result wasn't clear, the colours were shown on a
+different screen than the one you share for screen sync: move the GoveeHome window to the
+shared screen and run it again.
 
 **Screen sync: a light shows white or grey, but effects / plain colours look right**
 

@@ -24,6 +24,8 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   from it instead of the white page or desktop around it
 - A *colour test* that finds out whether a light understands segment streaming or only
   plain colours, and sets it up accordingly
+- *Check capture colours*: shows red, green and blue on the screen, checks they are captured
+  as such, and corrects captures that swap colour channels (a KDE Plasma bug)
 - An *Identify* test that shows on the light which side of the screen each segment follows,
   and a live colour strip per light showing exactly what it is being sent
 - Colours that match: every screen pixel counts, mixing happens in linear light and the
@@ -139,7 +141,7 @@ goveehome-cli music --colors "#ff0050;#00b4ff"      # your own colours
 goveehome-cli effect list
 goveehome-cli effect aurora --speed 0.5
 goveehome-cli effect meteor --color "#ff2000" --size 40 --reverse
-goveehome-cli diagnose                              # check screen capture and lights
+goveehome-cli diagnose                              # check screen capture, its colours and the lights
 goveehome-cli test-light all                        # find out how each light takes colours
 goveehome-cli update                                # install the newest version from GitHub
 ```
