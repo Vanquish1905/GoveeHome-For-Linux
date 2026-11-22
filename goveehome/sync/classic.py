@@ -42,7 +42,7 @@ SMOOTHING_ALPHA = 0.35            # per 33 ms, corrected for the real time betwe
 INTENSITY = {1: 0.5, 2: 1.0, 3: 2.0, 4: None}   # 4 = always full brightness
 STRENGTH_LABELS = {0: "Off (exactly like GoveeScreen)", 1: "Light", 2: "Medium", 3: "Strong", 4: "Full"}
 STRENGTH_CURVE = {0: None, 1: 1.6, 2: 2.5, 3: 4.0, 4: 9.0}
-NEUTRAL = 0.04       # below this saturation the screen counts as white / grey
+NEUTRAL = 0.10       # below this saturation a colour counts as white / grey and isn't strengthened
 INTENSITY_LABELS = {1: "50 %", 2: "100 %", 3: "200 %", 4: "Max"}
 COLOR_MODES = {"average": "Average colour", "dominant": "Dominant colour"}
 
@@ -133,8 +133,10 @@ def strengthen(color: FrameColor, level: int) -> FrameColor:
         return FrameColor(0, 0, 0, color.brightness)
     sat = (mx - mn) / mx
     if sat < NEUTRAL:
-        return FrameColor(255, 255, 255, color.brightness)
-    ramp = (sat - NEUTRAL) / (1 - NEUTRAL)
+        # white / grey with at most a faint tint: keep the tint as it is, full value
+        r, g, b = (int(round(v)) for v in np.clip(c * 255 / mx, 0, 255))
+        return FrameColor(r, g, b, color.brightness)
+    ramp = (sat - 0.04) / 0.96                    # real colours: the full curve
     new_sat = max(sat, 1 - (1 - ramp) ** k)
     hue_part = (c - mn) / (mx - mn)                 # 0..1 per channel, keeps the hue
     out = 255 * (1 - new_sat) + hue_part * 255 * new_sat
@@ -260,7 +262,165 @@ class ClassicScreenSource(Source):
 
 def make_screen_source(config, manager, backend_factory=None):
     """The screen sync source for the chosen style."""
-    if config.sync.get("style", "classic") == "classic":
+    style = config.sync.get("style", "grid")
+    if style == "grid":
+        return GridScreenSource(config, manager, backend_factory)
+    if style == "classic":
         return ClassicScreenSource(config, manager, backend_factory)
     from goveehome.sync.engine import ScreenSource
     return ScreenSource(config, backend_factory)
+
+
+# --- 9 parts (3 x 3 grid) -------------------------------------------------------------------
+
+GRID = 3
+
+
+def cell_rects(grid: int = GRID) -> list[tuple[float, float, float, float]]:
+    """The 9 screen parts, row by row from the top left, in 0..1 coordinates."""
+    step = 1.0 / grid
+    return [(c * step, r * step, (c + 1) * step, (r + 1) * step) for r in range(grid) for c in range(grid)]
+
+
+def grid_colours(frame: np.ndarray, mode: str = "average", grid: int = GRID) -> list[FrameColor]:
+    """Average (or dominant) colour and brightness of each of the 9 parts."""
+    h, w = frame.shape[:2]
+    out = []
+    for r in range(grid):
+        for c in range(grid):
+            cell = frame[r * h // grid:(r + 1) * h // grid, c * w // grid:(c + 1) * w // grid].reshape(-1, 3)
+            sums = cell.astype(np.int64).sum(axis=0)
+            avg = tuple(int(v) for v in sums // max(1, len(cell)))
+            brightness = (0.2126 * avg[0] + 0.7152 * avg[1] + 0.0722 * avg[2]) / 255.0 * 100.0
+            rgb = dominant(cell, avg) if mode == "dominant" else avg
+            out.append(FrameColor(*rgb, brightness))
+    return out
+
+
+def cell_of(rect, grid: int = GRID) -> int:
+    """Which of the 9 parts the middle of a zone falls into."""
+    x0, y0, x1, y1 = rect
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    col = min(grid - 1, max(0, int(cx * grid)))
+    row = min(grid - 1, max(0, int(cy * grid)))
+    return row * grid + col
+
+
+def segment_cells(settings: dict, depth: float = 0.25) -> list[int]:
+    """For each segment of a light, the screen part it takes its colour from.
+
+    Uses the light's mounting. A light set to "Whole screen" runs around the
+    screen (up the left, across the top, down the right, along the bottom),
+    the usual way a strip sits behind a monitor or TV.
+    """
+    from goveehome.sync.zones import layout_rects
+    layout = settings.get("layout") or "whole"
+    if layout == "whole":
+        layout = "around"
+    rects = layout_rects(layout, max(1, int(settings["segments"])), depth, settings.get("reverse", False))
+    return [cell_of(r) for r in rects]
+
+
+def to_light(color: FrameColor, level: int) -> tuple[float, float, float]:
+    """A part's colour as one segment of a streamed frame: hue at full strength, dimmed
+    to the part's brightness (a streamed frame has no separate brightness)."""
+    k = scale_brightness(color.brightness, level) / 100.0
+    return (color.r * k, color.g * k, color.b * k)
+
+
+class GridScreenSource(ClassicScreenSource):
+    """Screen sync style "9 parts": the screen is split into a 3 x 3 grid.
+
+    * Lights with segment streaming: every segment shows the colour of the part
+      of the screen it sits next to (from the light's mounting).
+    * All other lights (plain colour, Bluetooth): one colour for the whole
+      light, plus its brightness, exactly as in the "Whole light" style.
+    """
+
+    def __init__(self, config, manager, backend_factory=None):
+        super().__init__(config, manager, backend_factory)
+        self.cells: list[FrameColor] = []
+        self._ema: dict[str, np.ndarray] = {}
+        self._ema_time: dict[str, float] = {}
+        self._last_send: dict[str, float] = {}
+        self._sent: dict[str, list] = {}
+        self._maps: dict[str, list[int]] = {}
+
+    def render(self, targets, now):
+        from goveehome.capture.calibrate import apply_order
+        frame = apply_order(self.backend.grab(), self.options.get("channel_order"))
+        self.grabbed_at = time.monotonic()
+        self.capture_age = getattr(self.backend, "last_age", None)
+        self.frame = frame
+        work = frame
+        panel = float(self.options.get("skip_panel", 0.035))
+        if panel > 0:
+            work = frame[: max(1, int(round(frame.shape[0] * (1 - panel))))]
+        # black bars at the top and bottom don't belong to the picture
+        h = work.shape[0]
+        top = count_dark_rows(work, True, h // 3)
+        bottom = count_dark_rows(work, False, h // 3)
+        if h - top - bottom >= GRID:
+            work = work[top:h - bottom]
+        self._crop = (top, frame.shape[0] - (top + work.shape[0]))
+        mode = self.options.get("classic_mode", "dominant")
+        strength = int(self.options.get("colour_strength", 3))
+        level = int(self.options.get("intensity", 2))
+        smooth = bool(self.options.get("smooth", True))
+        # each part: its plain average colour (a few coloured pixels at the edge of a
+        # white part must not turn it into a strong colour)
+        self.cells = [strengthen(c, strength) for c in grid_colours(work, "average")]
+        whole, average = analyze(work, mode)
+        whole = strengthen(whole, strength)
+        self.color = whole
+
+        out = {}
+        depth = float(self.options.get("edge_depth", 0.25))
+        for t in targets:
+            settings = t.settings
+            if settings.get("streaming") and t.device.ip and int(settings.get("segments", 1)) > 1:
+                key = t.device.id
+                cells = segment_cells(settings, depth)
+                self._maps[key] = cells
+                target = np.array([to_light(self.cells[i], level) for i in cells], dtype=np.float64)
+                prev = self._ema.get(key)
+                if smooth and prev is not None and prev.shape == target.shape:
+                    dt_ms = float(np.clip((now - self._ema_time[key]) * 1000.0, 1, 500))
+                    alpha = 1 - (1 - SMOOTHING_ALPHA) ** (dt_ms / 33.0)
+                    target = prev + alpha * (target - prev)
+                self._ema[key], self._ema_time[key] = target, now
+                colours = [tuple(int(round(v)) for v in row) for row in target]
+                last = self._last_send.get(key, -1.0)
+                sent = self._sent.get(key)
+                changed = sent is None or any(
+                    abs(a - b) >= COLOR_DEADBAND for ca, cb in zip(colours, sent) for a, b in zip(ca, cb))
+                # resend now and then so the light stays in streaming mode
+                if (changed or now - last > 1.0) and (last < 0 or now - last >= MIN_SEND_INTERVAL):
+                    self.manager.stream(t.device, colours, settings)
+                    self._last_send[key], self._sent[key] = now, colours
+                out[key] = np.array(colours, dtype=np.float32)
+            else:
+                state = self.states.setdefault(t.device.id, LightState())
+                send_color, send_brightness = state.step(whole, level, smooth, now)
+                if send_color is not None or send_brightness is not None:
+                    self.manager.stream_plain(t.device, send_color, send_brightness)
+                out[t.device.id] = np.array([state.shown], dtype=np.float32)
+        self.details = (f"9 parts: {' '.join('#%02x%02x%02x' % (c.r, c.g, c.b) for c in self.cells)} · "
+                        f"screen brightness {average.brightness:.0f} %")
+        return out
+
+    def preview_rects(self, target):
+        """Draw the 3 x 3 grid, each segment's square in the part it follows."""
+        cells = self._maps.get(target.device.id)
+        if not cells or self.frame is None:
+            return []
+        top, bottom = getattr(self, "_crop", (0, 0))
+        h = self.frame.shape[0]
+        panel = float(self.options.get("skip_panel", 0.035))
+        usable = (h * (1 - panel) - top - bottom) / h if panel > 0 else (h - top - bottom) / h
+        y0 = top / h
+        out = []
+        for i in cells:
+            x0, ry0, x1, ry1 = cell_rects()[i]
+            out.append((x0, y0 + ry0 * usable, x1, y0 + ry1 * usable))
+        return out

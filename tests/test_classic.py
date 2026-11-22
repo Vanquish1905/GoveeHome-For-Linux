@@ -83,7 +83,7 @@ def test_classic_sync_sends_colour_and_brightness_commands(tmp_path):
     m.lan = Lan()
     neon = m.devices["neon"] = Device("neon", sku="H61A0", ip="10.0.0.5")
     neon.state.merge(color=(1, 2, 3), brightness=55)
-    assert m.config.sync["style"] == "classic"
+    m.config.sync["style"] = "classic"
     done = threading.Event()
     engine = SyncEngine(m, on_state=lambda r, msg: (not r) and done.set(),
                         backend_factory=lambda name: PatternCapture())
@@ -99,11 +99,80 @@ def test_classic_sync_sends_colour_and_brightness_commands(tmp_path):
     assert ("brightness", "10.0.0.5", 55) in m.lan.calls
 
 
-def test_config_migration_switches_to_classic(tmp_path):
+def test_config_migration_switches_to_the_grid(tmp_path):
     import json
     path = tmp_path / "c.json"
-    path.write_text(json.dumps({"version": 4, "sync": {"style": "zones"}}))
-    assert Config(path).sync["style"] == "classic"
+    path.write_text(json.dumps({"version": 6, "sync": {"style": "classic"}}))
+    assert Config(path).sync["style"] == "grid"
+
+
+# --- 9 parts ----------------------------------------------------------------------------------
+
+def nine_colour_screen():
+    """A screen whose 9 parts each have their own colour."""
+    colours = [(255, 0, 0), (255, 255, 0), (0, 255, 0),
+               (255, 0, 255), (128, 128, 128), (0, 255, 255),
+               (0, 0, 255), (255, 128, 0), (255, 255, 255)]
+    f = np.zeros((90, 160, 3), np.uint8)
+    for i, c in enumerate(colours):
+        r, col = divmod(i, 3)
+        f[r * 30:(r + 1) * 30, col * 53:(col + 1) * 53 + (1 if col == 2 else 0)] = c
+    return f, colours
+
+
+def test_grid_colours_are_the_average_of_each_part():
+    f, colours = nine_colour_screen()
+    cells = classic.grid_colours(f)
+    for got, want in zip(cells, colours):
+        assert np.abs(np.array([got.r, got.g, got.b]) - np.array(want)).max() <= 3
+
+
+def test_segments_follow_the_part_they_sit_next_to():
+    # TV backlight: up the left side, across the top, down the right side
+    cells = classic.segment_cells({"segments": 9, "layout": "u_shape", "reverse": False})
+    assert cells[0] == 6 and cells[-1] == 8           # starts bottom left, ends bottom right
+    assert 0 in cells and 1 in cells and 2 in cells   # passes the top left, middle and right
+    # light bars: left bar = left column, right bar = right column, top to bottom
+    bars = classic.segment_cells({"segments": 6, "layout": "bars", "reverse": False})
+    assert bars == [0, 3, 6, 2, 5, 8]
+    # a strip on "whole screen" goes around the screen
+    around = classic.segment_cells({"segments": 8, "layout": "whole", "reverse": False})
+    assert set(around) == {0, 1, 2, 3, 5, 6, 7, 8}
+
+
+class Nine:
+    label = "test"
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    def grab(self):
+        return nine_colour_screen()[0]
+
+
+def test_grid_style_streams_part_colours_and_plain_lights_get_one_colour(tmp_path):
+    m = DeviceManager(Config(tmp_path / "c.json"))
+    m.lan = Lan()
+    m.config.sync.update(style="grid", skip_panel=0.0, smooth=False, intensity=4)
+    tv = m.devices["tv"] = Device("tv", sku="H6199", ip="10.0.0.1")        # streams 15 segments
+    bulb = m.devices["bulb"] = Device("bulb", sku="H6008", ip="10.0.0.2")  # plain colour only
+    done = threading.Event()
+    engine = SyncEngine(m, on_state=lambda r, msg: (not r) and done.set(),
+                        backend_factory=lambda name: Nine())
+    engine.start()
+    time.sleep(0.6)
+    engine.stop()
+    assert done.wait(3)
+    frames = [c[2] for c in m.lan.calls if c[0] == "stream_colors" and c[1] == "10.0.0.1"]
+    assert frames and len(frames[-1]) == 15
+    first, last = frames[-1][0], frames[-1][-1]
+    assert first[2] > 200 and first[0] < 30            # starts at the bottom left part: blue
+    assert last == (255, 255, 255)                     # ends at the bottom right part: white
+    assert any(c[0] == "color" and c[1] == "10.0.0.2" for c in m.lan.calls)
+    assert any(c[0] == "brightness" and c[1] == "10.0.0.2" for c in m.lan.calls)
 
 
 def test_colour_strength_shows_the_screen_colour_not_white():
@@ -114,7 +183,9 @@ def test_colour_strength_shows_the_screen_colour_not_white():
     off = classic.strengthen(pale, 0)
     assert (off.r, off.g, off.b) == (120, 154, 141)           # off = exactly like GoveeScreen
     white = classic.strengthen(classic.FrameColor(235, 235, 236, 90.0), 3)
-    assert (white.r, white.g, white.b) == (255, 255, 255)
+    assert min(white.r, white.g, white.b) >= 250                # white stays white
+    tint = classic.strengthen(classic.FrameColor(128, 128, 120, 50.0), 4)
+    assert min(tint.r, tint.g, tint.b) > 230                    # a faint tint isn't blown up
     black = classic.strengthen(classic.FrameColor(2, 2, 3, 0.5), 4)
     assert (black.r, black.g, black.b) == (0, 0, 0)
 
