@@ -20,6 +20,7 @@ class RecordingLan:
 
 def make_manager(tmp_path):
     manager = DeviceManager(Config(tmp_path / "c.json"))
+    manager.config.sync["style"] = "zones"     # most tests here are about the zone style
     manager.lan = RecordingLan()
     return manager
 

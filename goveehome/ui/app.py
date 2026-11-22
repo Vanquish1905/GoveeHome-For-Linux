@@ -83,10 +83,11 @@ class Application(Adw.Application):
         self.update_info = None
 
         from goveehome.sync.effects import EffectSource
-        from goveehome.sync.engine import LightEngine, ScreenSource
+        from goveehome.sync.classic import make_screen_source
+        from goveehome.sync.engine import LightEngine
         from goveehome.sync.music import MusicSource
         factories = {
-            "sync": lambda: ScreenSource(self.config),
+            "sync": lambda: make_screen_source(self.config, self.manager),
             "music": lambda: MusicSource(self.config),
             "effects": lambda: EffectSource(self.config),
         }

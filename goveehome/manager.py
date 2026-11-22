@@ -453,6 +453,16 @@ class DeviceManager:
         entry = self._stream_state.pop(device.id, None)
         if entry is None:
             return
+        if entry.get("plain"):
+            # colour + brightness commands (GoveeScreen style): put both back
+            if restore:
+                if entry.get("brightness"):
+                    self.set_brightness(device, entry["brightness"])
+                if entry["kelvin"]:
+                    self.set_kelvin(device, entry["kelvin"])
+                elif entry["color"]:
+                    self.set_color(device, entry["color"])
+            return
         settings = settings or self.stream_settings(device)
         if settings["streaming"] and device.ip:
             # the light falls back to whatever it showed before streaming
@@ -515,6 +525,37 @@ class DeviceManager:
                 time.sleep(0.4)
             self.stream_stop(device, restore=True)
         threading.Thread(target=run, name="govee-identify", daemon=True).start()
+
+    def stream_plain(self, device: Device, rgb: RGB | None = None, brightness: float | None = None) -> None:
+        """One colour and/or a brightness for the whole light, as GoveeScreen sends them."""
+        entry = self._stream_state.get(device.id)
+        if entry is None:
+            entry = self._stream_state[device.id] = {
+                "last_frame": None, "plain": True,
+                "color": device.state.color, "kelvin": device.state.kelvin,
+                "brightness": device.state.brightness,
+            }
+            if device.state.on is False:
+                self.set_power(device, True)
+        entry["last_frame"] = time.monotonic()
+        if rgb is not None:
+            rgb = tuple(int(c) for c in rgb)
+            if device.ip:
+                self.lan.color(device.ip, rgb)
+            elif device.ble_address:
+                try:
+                    self.ble.write(device.ble_address, ble.color_packet(rgb, skus.lookup(device.sku).ble_color_mode))
+                except RuntimeError:
+                    pass
+        if brightness is not None:
+            value = max(1, min(100, int(round(brightness))))
+            if device.ip:
+                self.lan.brightness(device.ip, value)
+            elif device.ble_address:
+                try:
+                    self.ble.write(device.ble_address, ble.brightness_packet(value))
+                except RuntimeError:
+                    pass
 
     def show_test_colour(self, device: Device, rgb: RGB, streaming: bool, seconds: float = 4.0,
                          wait: bool = False, stop: threading.Event | None = None) -> threading.Thread:

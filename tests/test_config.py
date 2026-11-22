@@ -35,7 +35,7 @@ def test_old_tuning_is_reset(tmp_path):
     c = Config(path)
     assert c.sync["smoothing"] == 0.04 and c.sync["mode"] == "vivid" and c.sync["monitor"] == 1
     assert c.sync["backend"] == "x11" and c["cloud_api_key"] == "k"
-    assert c["version"] == 4
+    assert c["version"] == 5
 
 
 def test_13_settings_get_colourful_defaults(tmp_path):

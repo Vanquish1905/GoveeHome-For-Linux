@@ -98,7 +98,9 @@ class LightRow(Adw.ActionRow):
             self._set_switch(False)
             return
         self.set_sensitive(True)
-        if self.page.kind == "sync":
+        if self.page.kind == "sync" and self.page.config.sync.get("style", "classic") == "classic":
+            self.set_subtitle("Whole light: screen colour and brightness")
+        elif self.page.kind == "sync":
             layout = LAYOUTS.get(settings["layout"], settings["layout"])
             detail = f"{settings['segments']} segments" if settings["streaming"] else "Single colour"
             self.set_subtitle(f"{detail} · {layout}")
@@ -342,7 +344,39 @@ class ScreenSyncPage(ShowPage):
     lights_text = "Open a light to set how it is mounted. Lights need LAN control or Bluetooth."
 
     def build_top(self):
+        from goveehome.sync import classic
+        style = Adw.PreferencesGroup(
+            title="Style",
+            description="“Whole light” works like GoveeScreen on Windows: every light shows the colour "
+                        "of the screen, and its brightness follows how bright the screen is. "
+                        "“Zones” gives segment lights a colour per part of the screen.")
+        styles = {"classic": "Whole light, like GoveeScreen", "zones": "Zones per segment"}
+        row = self.combo(style, "sync", "Style", "style", styles)
+        row.connect("notify::selected", lambda *_: (self._update_style(), self._restart_if_running()))
+        self.classic_rows = [
+            self.combo(style, "sync", "Colour", "classic_mode", classic.COLOR_MODES,
+                       "Dominant takes the most present vivid colour instead of the average"),
+        ]
+        levels = {str(k): v for k, v in classic.INTENSITY_LABELS.items()}
+        values = self.config.sync
+        intensity = Adw.ComboRow(title="Intensity", subtitle="How bright the light gets compared to the screen")
+        intensity.set_model(Gtk.StringList.new(list(levels.values())))
+        intensity.set_selected(max(0, int(values.get("intensity", 2)) - 1))
+        intensity.connect("notify::selected", lambda r, _p: self.config.set_sync("intensity", r.get_selected() + 1))
+        style.add(intensity)
+        smooth = Adw.SwitchRow(title="Smooth transitions", active=bool(values.get("smooth", True)))
+        smooth.connect("notify::active", lambda r, _p: self.config.set_sync("smooth", r.get_active()))
+        style.add(smooth)
+        panel = Adw.SwitchRow(title="Leave out the panel / taskbar",
+                              subtitle="The bottom strip of the screen doesn't count",
+                              active=float(values.get("skip_panel", 0.035)) > 0)
+        panel.connect("notify::active", lambda r, _p: self.config.set_sync("skip_panel", 0.035 if r.get_active() else 0.0))
+        style.add(panel)
+        self.classic_rows += [intensity, smooth, panel]
+        self.page.add(style)
+
         group = Adw.PreferencesGroup(title="Colours")
+        self.zone_groups = [group]
         self.combo(group, "sync", "Colour pick", "mode", sc.MODES,
                    "Colourful lets the colours in a zone win over white and grey areas")
         vivid = self.slider(group, "sync", "Vividness", "vividness", 1.0, 8.0, 0.1,
@@ -396,6 +430,24 @@ class ScreenSyncPage(ShowPage):
         fps.connect("notify::value", lambda r, _p: self.config.set_sync("fps", int(r.get_value())))
         speed.add(fps)
         self.page.add(speed)
+        self.zone_groups.append(speed)
+        self._update_style()
+
+    def _restart_if_running(self):
+        if self.engine.running:
+            self.engine.stop(wait=True)
+            self.app.start_show("sync")
+
+    def _update_style(self):
+        classic_on = self.config.sync.get("style", "classic") == "classic"
+        for row in self.classic_rows:
+            row.set_visible(classic_on)
+        for group in self.zone_groups:
+            group.set_visible(not classic_on)
+        if getattr(self, "edge_row", None) is not None:
+            self.edge_row.set_visible(not classic_on)
+        for row in getattr(self, "_rows", {}).values():
+            row.update()
 
     def build_bottom(self):
         sync = self.config.sync
@@ -428,8 +480,8 @@ class ScreenSyncPage(ShowPage):
             mon.connect("notify::selected", lambda r, _p: self.config.set_sync("monitor", r.get_selected()))
             group.add(mon)
 
-        self.slider(group, "sync", "Edge depth", "edge_depth", 0.05, 0.5, 0.01,
-                    lambda v: f"{v * 100:.0f} %", reload=True)
+        self.edge_row = self.slider(group, "sync", "Edge depth", "edge_depth", 0.05, 0.5, 0.01,
+                                    lambda v: f"{v * 100:.0f} %", reload=True)
         restore = Adw.SwitchRow(title="Restore colours when stopping", active=sync["restore_on_stop"])
         restore.connect("notify::active", lambda r, _p: self.config.set_sync("restore_on_stop", r.get_active()))
         group.add(restore)
@@ -450,6 +502,7 @@ class ScreenSyncPage(ShowPage):
             forget.add_suffix(btn)
             group.add(forget)
         self.page.add(group)
+        self._update_style()
 
     def _build_preview(self):
         group = super()._build_preview()

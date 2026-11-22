@@ -102,10 +102,12 @@ def cmd_temp(args) -> int:
     return _each(args, lambda m, d: m.set_kelvin(d, args.kelvin))
 
 
-def _run_show(args, kind: str, source_factory, prepare=None) -> int:
+def _run_show(args, kind: str, source_factory, prepare=None, manager_ref: dict | None = None) -> int:
     from goveehome.sync.engine import LightEngine
 
     manager = _manager(args)
+    if manager_ref is not None:
+        manager_ref["m"] = manager
     _wait_for_devices(manager, args.timeout)
     if prepare:
         prepare(manager.config)
@@ -136,14 +138,17 @@ def _run_show(args, kind: str, source_factory, prepare=None) -> int:
 
 
 def cmd_sync(args) -> int:
-    from goveehome.sync.engine import ScreenSource
+    from goveehome.sync.classic import make_screen_source
 
     def prepare(config):
         if args.backend:
             config.sync["backend"] = args.backend
         if args.fps:
             config.sync["fps"] = args.fps
-    return _run_show(args, "sync", ScreenSource, prepare)
+    def source(config):
+        return make_screen_source(config, manager_ref["m"])
+    manager_ref: dict = {}
+    return _run_show(args, "sync", source, prepare, manager_ref)
 
 
 def cmd_music(args) -> int:

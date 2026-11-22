@@ -11,7 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-CONFIG_VERSION = 4
+CONFIG_VERSION = 5
 
 DEFAULTS: dict = {
     "version": CONFIG_VERSION,
@@ -23,6 +23,11 @@ DEFAULTS: dict = {
     "device_settings": {},        # device id -> per device overrides, see device_settings()
     "gamma": 2.0,                 # LED gamma used by all light shows, 1.0 = off
     "sync": {
+        "style": "classic",       # "classic": one colour + brightness per light (GoveeScreen), "zones": per segment
+        "classic_mode": "average",  # classic style: "average" or "dominant"
+        "intensity": 2,           # classic style: 1 = 50 %, 2 = 100 %, 3 = 200 %, 4 = max
+        "smooth": True,           # classic style: smooth transitions
+        "skip_panel": 0.035,      # classic style: share of the screen bottom left out (taskbar / panel)
         "backend": "auto",
         "fps": 30,
         "smoothing": 0.04,        # seconds, 0 = instant
@@ -106,6 +111,9 @@ def _migrate(raw: dict) -> dict:
             raw["sync"]["mode"] = "vivid"
         if raw["sync"].get("edge_depth", 0.15) <= 0.15:
             raw["sync"]["edge_depth"] = 0.25
+    if raw.get("version", 1) < 5 and isinstance(raw.get("sync"), dict):
+        # 1.8.2 makes the GoveeScreen style the default screen sync
+        raw["sync"]["style"] = "classic"
     raw["version"] = CONFIG_VERSION
     return raw
 

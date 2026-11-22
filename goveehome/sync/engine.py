@@ -325,7 +325,13 @@ class LightEngine:
                     self.targets = targets
                 outputs = source.render(targets, started)
                 now = time.monotonic()
-                self._send(targets, outputs, source, now)
+                if getattr(source, "direct", False):
+                    # the source talks to the lights itself (GoveeScreen style)
+                    for t in targets:
+                        if t.device.id in outputs:
+                            t.display = sc.to_rgb_list(outputs[t.device.id])
+                else:
+                    self._send(targets, outputs, source, now)
                 grabbed = getattr(source, "grabbed_at", None)
                 if grabbed is not None:
                     delay = time.monotonic() - grabbed + (getattr(source, "capture_age", None) or 0.0)
@@ -389,9 +395,11 @@ class LightEngine:
 
 
 class SyncEngine(LightEngine):
-    """Screen sync."""
+    """Screen sync, in the style chosen in the settings."""
 
     def __init__(self, manager: DeviceManager, on_preview=None, on_state=None,
                  backend_factory: Callable[[str], capture.CaptureBackend] | None = None):
-        super().__init__(manager, lambda: ScreenSource(manager.config, backend_factory),
-                         on_preview, on_state, kind="sync")
+        def factory():
+            from goveehome.sync.classic import make_screen_source
+            return make_screen_source(manager.config, manager, backend_factory)
+        super().__init__(manager, factory, on_preview, on_state, kind="sync")
