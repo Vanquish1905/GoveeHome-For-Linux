@@ -347,6 +347,172 @@ def _halloween(x, t, p):
     return col * flicker[:, None]
 
 
+# --- slow and smooth -------------------------------------------------------------------
+# Nothing in here jumps: colours change gradually, and things that move glide
+# from LED to LED (positions are interpolated, so a light fades out of one
+# segment while it fades into the next).
+
+def _circ_dist(x, pos):
+    d = np.abs(x - pos) % 1.0
+    return np.minimum(d, 1 - d)
+
+
+def _segment_glow(x, pos, width_segments=1.6):
+    """Brightness of a light at `pos` that moves smoothly segment by segment."""
+    n = max(1, len(x))
+    width = max(width_segments / n, 0.03)
+    return np.clip(1 - _circ_dist(x, pos) / width, 0, 1) ** 1.5
+
+
+def _slow_rainbow(x, t, p):
+    return hsv(x * 0.5 + t * 0.012 * p.speed, 1.0, 1.0)
+
+
+def _colour_drift(x, t, p):
+    """The whole light drifts slowly through all colours, with a gentle wave."""
+    return hsv(t * 0.008 * p.speed + 0.06 * np.sin(TAU * (x - t * 0.02 * p.speed)), 1.0, 1.0)
+
+
+def _travelling_light(x, t, p):
+    """One light travelling around the strip, LED by LED, slowly changing colour."""
+    pos = (t * 0.05 * p.speed) % 1.0
+    hue = t * 0.01 * p.speed
+    glow = _segment_glow(x, pos, 1.5 + 3 * p.size)
+    col = hsv(np.array([hue]), 1.0, 1.0)[0]
+    out = col * (0.05 + 0.95 * glow)[:, None]
+    if len(x) == 1:
+        out = hsv(np.array([hue]), 1.0, 0.55 + 0.45 * np.sin(TAU * t * 0.05 * p.speed) ** 2)
+    return out
+
+
+def _twin_travellers(x, t, p):
+    """Two lights in your first two colours travelling in opposite directions."""
+    a = _segment_glow(x, (t * 0.04 * p.speed) % 1.0, 1.5 + 3 * p.size)
+    b = _segment_glow(x, (-t * 0.04 * p.speed + 0.5) % 1.0, 1.5 + 3 * p.size)
+    out = (a[:, None] * np.asarray(p.color_a, np.float32) + b[:, None] * np.asarray(p.color_b, np.float32))
+    out += 0.04 * (np.asarray(p.color_a, np.float32) + np.asarray(p.color_b, np.float32)) / 2
+    if len(x) == 1:
+        out = palette([p.color_a, p.color_b], np.array([t * 0.02 * p.speed]))
+    return out
+
+
+def _colour_journey(x, t, p):
+    """Your three colours travelling slowly around the strip, blending into each other."""
+    return palette(p.cols(3), x * (0.5 + p.size) - t * 0.03 * p.speed)
+
+
+def _slow_comet(x, t, p):
+    pos = (t * 0.06 * p.speed) % 1.0
+    behind = (pos - x) % 1.0                       # distance behind the head, wrapping around
+    tail = np.clip(1 - behind / (0.2 + 0.5 * p.size), 0, 1) ** 2
+    head = _segment_glow(x, pos, 1.2)
+    level = np.maximum(tail, head)
+    col = palette([p.color_a, p.color_b], np.array([t * 0.02 * p.speed]))[0]
+    out = col * level[:, None]
+    if len(x) == 1:
+        out = palette([p.color_a, p.color_b], np.array([t * 0.02 * p.speed]))
+    return out
+
+
+def _christmas_travel(x, t, p):
+    """Red, green and warm white travelling slowly around the strip, no jumps."""
+    cols = [(255, 0, 0), (255, 0, 0), (0, 190, 30), (0, 190, 30), (255, 190, 120)]
+    return palette(cols, x * (0.6 + p.size) - t * 0.025 * p.speed)
+
+
+def _ember(x, t, p):
+    heat = noise(x * 1.8, t * 0.25 * p.speed) * 0.7 + 0.3 * noise(x * 4, t * 0.15 * p.speed, 2.0)
+    return palette([(90, 10, 0), (200, 40, 0), (255, 100, 0), (255, 150, 30)], heat, cyclic=False)
+
+
+def _calm_ocean(x, t, p):
+    u = x * 0.4 + 0.12 * np.sin(TAU * (x * 0.8 - t * 0.03 * p.speed)) + t * 0.008 * p.speed
+    col = palette([(0, 30, 140), (0, 110, 200), (0, 170, 170), (0, 60, 180)], u)
+    return col * (0.75 + 0.25 * np.sin(TAU * (x * 1.2 - t * 0.04 * p.speed)))[:, None]
+
+
+def _starlight(x, t, p):
+    n = max(1, len(x))
+    idx = np.arange(n)
+    period = (6.0 + 6 * rand(idx, 4.0)) / p.speed
+    phase = ((t + rand(idx, 8.0) * 20) % period) / period
+    twinkle = np.sin(np.pi * phase) ** 4
+    base = np.array([5, 10, 45], np.float32)
+    return base + twinkle[:, None] * np.array([190, 200, 230], np.float32)
+
+
+def _pastel_drift(x, t, p):
+    return hsv(x * 0.35 + t * 0.01 * p.speed, 0.38, 1.0)
+
+
+def _sunset_drift(x, t, p):
+    return palette([(255, 80, 0), (255, 40, 70), (190, 0, 120), (255, 130, 20)],
+                   x * 0.4 + t * 0.008 * p.speed)
+
+
+def _breathe_shift(x, t, p):
+    """Breathes slowly and moves on to the next colour while it's dim, without ever going dark."""
+    level = 0.25 + 0.75 * (0.5 - 0.5 * np.cos(TAU * t * 0.08 * p.speed))
+    hue = t * 0.012 * p.speed
+    return hsv(np.full_like(x, hue) + 0.05 * x, 1.0, level)
+
+
+def _northern_slow(x, t, p):
+    u = x * 0.5 + 0.2 * np.sin(TAU * (x * 0.6 + t * 0.015 * p.speed)) + t * 0.006 * p.speed
+    col = palette([(0, 255, 120), (0, 140, 255), (140, 0, 255), (0, 220, 160)], u)
+    return col * (0.6 + 0.4 * noise(x * 2, t * 0.2 * p.speed))[:, None]
+
+
+class _StrikeSchedule:
+    """Lightning strike times with irregular gaps: never the same gap twice in a row."""
+
+    def __init__(self):
+        self.times = [1.2]
+        self.gap = 0.0
+
+    def until(self, t: float) -> list[float]:
+        k = len(self.times)
+        while self.times[-1] < t + 10:
+            gap = 1.4 + 6.5 * float(rand(k, 31.0))
+            while abs(gap - self.gap) < 0.9:       # too close to the last gap: move it on
+                gap = 1.4 + (gap - 1.4 + 2.3) % 6.5
+            self.gap = gap
+            self.times.append(self.times[-1] + gap)
+            k += 1
+        return self.times
+
+
+_STRIKES: dict[float, _StrikeSchedule] = {}
+
+
+def _lightning_storm(x, t, p):
+    """Blues that keep shifting, with lightning at irregular moments and places."""
+    u = x * 0.5 + 0.25 * noise(x * 2.0, t * 0.12 * p.speed) + t * 0.01 * p.speed
+    base = palette([(0, 10, 60), (0, 40, 140), (20, 70, 200), (0, 90, 170), (30, 20, 120)], u)
+    base = base * (0.55 + 0.45 * noise(x * 3.0, t * 0.3 * p.speed, 6.0))[:, None]
+    tt = t * p.speed                                   # speed makes storms more frequent
+    sched = _STRIKES.setdefault(0.0, _StrikeSchedule())
+    times = sched.until(tt)
+    flash = np.zeros(len(x), np.float32)
+    # the strikes that can still be visible right now
+    for k, start in enumerate(times):
+        if start > tt:
+            break
+        age = tt - start
+        if age > 1.0:
+            continue
+        # two or three flickers, the second usually brighter
+        pulses = [(0.0, 0.7), (0.12 + 0.08 * float(rand(k, 2.0)), 1.0)]
+        if rand(k, 3.0) > 0.4:
+            pulses.append((0.32 + 0.1 * float(rand(k, 4.0)), 0.6))
+        level = sum(a * np.exp(-max(0.0, age - d) * 14) * (age >= d) for d, a in pulses)
+        where = float(rand(k, 5.0))
+        reach = 0.25 + 0.35 * float(rand(k, 6.0))
+        spread = np.clip(1 - np.abs(x - where) / reach, 0.15, 1) if len(x) > 1 else np.ones(1)
+        flash = np.maximum(flash, min(1.0, level) * spread)
+    return base * (1 - flash[:, None] * 0.3) + flash[:, None] * np.array([215, 225, 255], np.float32)
+
+
 # --- animated, in their own colours ------------------------------------------------------
 # These all move along the light, and they also change over time on a single
 # colour light, so every light gets something out of them.
@@ -729,7 +895,25 @@ class Effect:
     uses_size: bool = False
 
 
-CATEGORIES = ["Animated", "Moods", "Colourful", "Your colours", "Nature", "Party and seasons"]
+CATEGORIES = ["Slow and smooth", "Animated", "Moods", "Colourful", "Your colours", "Nature", "Party and seasons"]
+
+_SLOW = [
+    ("slow_rainbow", "Slow rainbow", _slow_rainbow, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), 0, False),
+    ("colour_drift", "Colour drift", _colour_drift, ((255, 0, 100), (255, 120, 0), (0, 160, 255)), 0, False),
+    ("travelling_light", "Travelling light", _travelling_light, ((0, 0, 0), (0, 200, 255), (0, 0, 0)), 0, True),
+    ("twin_travellers", "Two travellers", _twin_travellers, (), 2, True),
+    ("colour_journey", "Colour journey", _colour_journey, (), 3, True),
+    ("slow_comet", "Slow comet", _slow_comet, (), 2, True),
+    ("christmas", "Christmas", _christmas_travel, ((255, 0, 0), (0, 190, 30), (255, 190, 120)), 0, True),
+    ("lightning_storm", "Lightning storm", _lightning_storm, ((0, 10, 60), (20, 70, 200), (215, 225, 255)), 0, False),
+    ("ember", "Ember glow", _ember, ((90, 10, 0), (255, 100, 0), (255, 150, 30)), 0, False),
+    ("calm_ocean", "Calm ocean", _calm_ocean, ((0, 30, 140), (0, 170, 170), (0, 60, 180)), 0, False),
+    ("starlight", "Starlight", _starlight, ((5, 10, 45), (195, 210, 255), (5, 10, 45)), 0, False),
+    ("pastel_drift", "Pastel drift", _pastel_drift, ((255, 160, 200), (160, 220, 255), (200, 255, 170)), 0, False),
+    ("sunset_drift", "Sunset drift", _sunset_drift, ((255, 80, 0), (255, 40, 70), (190, 0, 120)), 0, False),
+    ("breathe_shift", "Breathing colours (soft)", _breathe_shift, ((80, 0, 40), (255, 0, 120), (255, 140, 0)), 0, False),
+    ("northern_slow", "Northern lights (slow)", _northern_slow, ((0, 255, 120), (0, 140, 255), (140, 0, 255)), 0, False),
+]
 
 _ANIMATED = [
     ("juggle", "Juggle", _juggle, ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255)), True),
@@ -806,6 +990,7 @@ _SEASONAL = [
 ]
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in [
+    *[Effect(eid, label, fn, "Slow and smooth", cols, prev, size) for eid, label, fn, prev, cols, size in _SLOW],
     *[Effect(eid, label, fn, "Animated", 0, prev, size) for eid, label, fn, prev, size in _ANIMATED],
     *[Effect(eid, label, _drift(cols), "Moods", 0, tuple(cols)) for eid, label, cols in _MOODS],
     *[Effect(eid, label, fn, "Party and seasons", 0, ()) for eid, label, fn in _SEASONAL],
@@ -848,7 +1033,7 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in [
     Effect("twinkle", "Twinkle", _twinkle, "Party and seasons", 3),
     Effect("fireworks", "Fireworks", _fireworks, "Party and seasons", 0, ((0, 0, 0), (255, 60, 200), (255, 220, 60)), True),
     Effect("police", "Police", _police, "Party and seasons", 0, ((255, 0, 0), (0, 40, 255))),
-    Effect("christmas", "Christmas", _christmas, "Party and seasons", 0, ((255, 0, 0), (0, 200, 0), (255, 255, 255))),
+    Effect("christmas_chase", "Christmas chase", _christmas, "Party and seasons", 0, ((255, 0, 0), (0, 200, 0), (255, 255, 255))),
     Effect("halloween", "Halloween", _halloween, "Party and seasons", 0, ((255, 90, 0), (120, 0, 200))),
 ]}
 
