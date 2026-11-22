@@ -6,7 +6,7 @@
   <name>GoveeHome</name>
   <summary>Control Govee lights and sync them with your screen and music</summary>
   <developer id="io.github.vanquish1905">
-    <name>Colin</name>
+    <name>vanquish1905</name>
   </developer>
   <description>
     <p>
@@ -36,6 +36,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.1" date="2026-11-22">
+      <description>
+        <p>Check capture colours: detects and fixes screen captures with swapped colour
+        channels (a KDE Plasma bug), so screen sync shows the colours that are on screen.</p>
+      </description>
+    </release>
     <release version="1.8.0" date="2026-11-21">
       <description>
         <p>Colour test that finds out whether a light understands segment streaming or only

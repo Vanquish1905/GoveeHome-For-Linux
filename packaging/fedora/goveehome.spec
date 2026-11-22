@@ -1,5 +1,5 @@
 Name:           goveehome
-Version:        1.8.0
+Version:        1.8.1
 Release:        1%{?dist}
 Summary:        Control Govee lights on Linux and sync them with your screen
 
@@ -68,21 +68,23 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/*.metainfo.xml
 %{_userunitdir}/goveehome-sync.service
 
 %changelog
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.8.0-1
+* Sun Nov 22 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.8.1-1
+- Check and fix swapped capture colours
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.8.0-1
 - Colour test per light, streaming only assumed where known to work
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.7.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.7.0-1
 - Vividness for screen sync, fixes white output on RGBWW lights
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.6.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.6.0-1
 - KDE capture fixes, colour boost, diagnostics, 35 more effects
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.5.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.5.0-1
 - Strongest-colour pick for screen sync, 30 animated effects with previews
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.4.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.4.0-1
 - Screen sync follows videos in windows and ignores white areas
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.3.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.3.0-1
 - Faster capture without flashing, light bar layouts, more effects and palettes
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.2.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.2.0-1
 - Built-in updater
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.1.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.1.0-1
 - Accurate, faster screen sync; music sync; effects; groups; colour correction
-* Sat Nov 21 2026 Colin <vanquish.16.3.1905@gmail.com> - 1.0.0-1
+* Sat Nov 21 2026 vanquish1905 <vanquish.16.3.1905@gmail.com> - 1.0.0-1
 - First release

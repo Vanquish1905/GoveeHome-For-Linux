@@ -7,7 +7,7 @@ name = "goveehome"
 dynamic = ["version"]
 description = "Control Govee lights on Linux and sync them with your screen"
 readme = "README.md"
-authors = [{ name = "Colin", email = "vanquish.16.3.1905@gmail.com" }]
+authors = [{ name = "vanquish1905", email = "vanquish.16.3.1905@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.22", "pillow>=9"]
 classifiers = [
