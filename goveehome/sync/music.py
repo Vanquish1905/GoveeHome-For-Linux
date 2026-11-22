@@ -21,6 +21,8 @@ log = logging.getLogger(__name__)
 
 RATE = 44100
 
+FEELS = {"flowing": "Flowing", "jumpy": "Jumpy"}
+
 MODES = {
     "spectrum": "Spectrum",
     "mirror": "Mirrored spectrum",
@@ -132,24 +134,43 @@ class Analyzer:
             self.buffer[-n:] = samples
 
     def analyze(self, now: float, sensitivity: float = 1.0) -> Analysis:
+        """Sensitivity sets how readily the lights react, not how bright they are.
+
+        Low: only strong peaks and clear beats come through. High: quiet details
+        move the lights too, and beats are picked up more easily. Each band also
+        learns its own noise floor, so steady background sound doesn't light it.
+        """
+        s = float(np.clip(sensitivity, 0.3, 2.5))
         spectrum = np.abs(np.fft.rfft(self.buffer * self.window))
         energy = np.array([np.sqrt(np.mean(spectrum[b] ** 2)) for b in self.band_bins], dtype=np.float32)
         loud = np.log1p(energy)
         # automatic gain per band: follow the loudest recent value, slowly forget it
         self.peak = np.maximum(self.peak * 0.995, np.maximum(loud, 0.5))
+        # noise floor per band: drops at once, rises slowly
+        if not hasattr(self, "floor"):
+            self.floor = loud.copy()
         # half per band, half overall: every band gets used, but a band that only
         # ever holds a whisper doesn't light up as much as the loud ones
         reference = 0.5 * self.peak + 0.5 * float(self.peak.max())
-        bands = np.clip(loud / reference * sensitivity, 0, 1) ** 1.6
+        # the floor never takes more than half the range, so held notes and
+        # chords stay visible instead of fading out
+        self.floor = np.minimum(np.minimum(self.floor + 0.004 * (self.peak - self.floor), loud),
+                                0.5 * reference)
+        span = np.maximum(reference - self.floor, 0.25)
+        norm = np.clip((loud - self.floor) / span, 0, 1)
+        bands = norm ** float(np.clip(1.9 / s, 0.55, 4.0))
         rms = float(np.sqrt(np.mean(self.buffer ** 2)))
         self.level_peak = max(self.level_peak * 0.997, rms, 0.02)
-        level = float(np.clip(rms / self.level_peak * sensitivity, 0, 1))
+        self.level_floor = min(getattr(self, "level_floor", rms) * 1.002 + 1e-5, rms)
+        level_norm = (rms - self.level_floor) / max(self.level_peak - self.level_floor, 1e-4)
+        level = float(np.clip(level_norm, 0, 1) ** float(np.clip(1.4 / s, 0.5, 3.5)))
         if rms < 1e-4:
             bands[:] = 0
             level = 0.0
         bass = float(loud[:3].mean())
         avg = float(np.mean(self.bass_history)) if self.bass_history else bass
-        beat = (len(self.bass_history) > 8 and bass > avg * 1.25 + 0.15 and level > 0.08
+        factor = float(np.clip(1.4 - 0.15 * (s - 1), 1.08, 1.6))
+        beat = (len(self.bass_history) > 8 and bass > avg * factor + 0.12 / s and rms > 1e-3
                 and now - self.last_beat > 0.18)
         if beat:
             self.last_beat = now
@@ -191,8 +212,13 @@ class MusicSource(Source):
     def fps(self) -> int:
         return int(self.section.get("fps", 40))
 
+    @property
+    def flowing(self) -> bool:
+        return self.section.get("feel", "flowing") != "jumpy"
+
     def smoothing(self) -> float:
-        return 0.03
+        # Jumpy: every change goes straight through. Flowing: changes glide.
+        return 0.16 if self.flowing else 0.0
 
     def render(self, targets, now):
         s = self.section
@@ -205,13 +231,41 @@ class MusicSource(Source):
         mode = s.get("mode", "spectrum")
         brightness = float(s.get("brightness", 1.0))
 
-        self._phase = (self._phase + dt * (0.02 + 0.08 * a.level) + (0.13 if a.beat else 0.0)) % 1.0
-        if a.beat:
-            self._pulse_u = (self._pulse_u + 0.29) % 1.0
-            self._pulse_env = 1.0
+        flowing = self.flowing
+        if flowing:
+            # colours glide with the music: no jumps, the beat only nudges the drift
+            self._phase = (self._phase + dt * (0.01 + 0.06 * a.level) + (0.02 if a.beat else 0.0)) % 1.0
+            if a.beat:
+                self._pulse_target = (getattr(self, "_pulse_target", self._pulse_u) + 0.18) % 1.0
+            target = getattr(self, "_pulse_target", self._pulse_u)
+            diff = ((target - self._pulse_u + 0.5) % 1.0) - 0.5
+            self._pulse_u = (self._pulse_u + diff * min(1.0, dt / 0.6)) % 1.0
+            goal = a.level
+            rate = dt / (0.08 if goal > self._pulse_env else 0.7)
+            self._pulse_env += (goal - self._pulse_env) * min(1.0, rate)
+            # bands glide too
+            if not hasattr(self, "_bands") or len(self._bands) != len(a.bands):
+                self._bands = a.bands.copy()
+            self._bands += (a.bands - self._bands) * min(1.0, dt / 0.12)
+            a = Analysis(self._bands.copy(), a.level, a.beat, a.centroid)
         else:
-            self._pulse_env *= float(np.exp(-dt / 0.25)) if dt else 1.0
-        if mode == "rolling":
+            # jumpy: colour jumps and a flash on every beat, fast fall-off
+            self._phase = (self._phase + dt * (0.02 + 0.08 * a.level) + (0.13 if a.beat else 0.0)) % 1.0
+            if a.beat:
+                self._pulse_u = (self._pulse_u + 0.29) % 1.0
+                self._pulse_env = 1.0
+            else:
+                self._pulse_env *= float(np.exp(-dt / 0.15)) if dt else 1.0
+        if mode == "rolling" and flowing:
+            # move the colour band smoothly: fractional steps, interpolated
+            self._roll_pos = getattr(self, "_roll_pos", 0.0) + dt * (4 + 18 * a.level)
+            steps = int(self._roll_pos)
+            self._roll_pos -= steps
+            if steps:
+                self._roll = np.roll(self._roll, steps, axis=0)
+                fresh = pal(np.array([self._phase + a.centroid * 0.5]))[0] * (0.15 + 0.85 * a.level)
+                self._roll[:steps] = fresh
+        elif mode == "rolling":
             shift = 1 + int(a.level * 3)
             self._roll = np.roll(self._roll, shift, axis=0)
             fresh = pal(np.array([self._phase + a.centroid * 0.5]))[0] * (0.1 + 0.9 * a.level)
@@ -241,7 +295,7 @@ class MusicSource(Source):
             elif mode == "energy":
                 col = pal(self._phase + x * 0.3) * (0.12 + 0.88 * a.level)
             elif mode == "pulse":
-                col = pal(np.full_like(x, self._pulse_u) + x * 0.1) * max(0.05, self._pulse_env)
+                col = pal(np.full_like(x, self._pulse_u) + x * 0.1) * max(0.05, min(1.0, self._pulse_env))
             else:  # rolling
                 idx = np.clip((x * (len(self._roll) / 3 - 1)).astype(int), 0, len(self._roll) - 1)
                 col = self._roll[idx]

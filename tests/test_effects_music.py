@@ -171,3 +171,88 @@ def test_animated_effects_move_and_are_colourful(effect):
     assert moves > 20, "doesn't move along the light"
     assert single > 10, "doesn't change on a single colour light"
     assert colour > 80, "not colourful"
+
+
+SLOW = [e.id for e in effects.EFFECTS.values() if e.category == "Slow and smooth"]
+
+
+@pytest.mark.parametrize("effect", SLOW)
+def test_slow_effects_never_jump(effect):
+    p = effects.Params()
+    for n in (1, 10):
+        x = np.linspace(0, 1, n)
+        frames = [effects.render(effect, x, t, p) for t in np.arange(0, 30, 1 / 30)]
+        biggest = max(np.abs(a - b).max() for a, b in zip(frames, frames[1:]))
+        moved = max(np.abs(frames[0] - f).max() for f in frames)
+        if effect != "lightning_storm":          # its flashes are meant to be sudden
+            assert biggest < 12, f"jumps by {biggest:.0f} between two frames"
+        assert moved > 40, "doesn't change"
+
+
+def test_travelling_light_moves_segment_by_segment():
+    x = np.linspace(0, 1, 10, endpoint=False)
+    peaks = [int(effects.render("travelling_light", x, t, effects.Params()).max(axis=1).argmax())
+             for t in np.arange(0, 20, 0.25)]
+    steps = {(b - a) % 10 for a, b in zip(peaks, peaks[1:])}
+    assert steps <= {0, 1}                       # never skips a segment
+    assert len(set(peaks)) == 10                 # and visits all of them
+
+
+def test_lightning_gaps_are_never_the_same_twice_in_a_row():
+    gaps = np.diff(effects._StrikeSchedule().until(1200))
+    assert gaps.min() >= 1.4 and gaps.max() <= 8.0
+    assert np.abs(np.diff(gaps)).min() >= 0.9
+
+
+def _song():
+    t = np.arange(music.RATE * 12) / music.RATE
+    sig = np.zeros_like(t)
+    for k in np.arange(0, 12, 0.5):
+        m = (t >= k) & (t < k + 0.2)
+        sig[m] += 0.7 * np.sin(2 * np.pi * 55 * (t[m] - k)) * np.exp(-(t[m] - k) * 18)
+    sig += 0.08 * np.sin(2 * np.pi * 220 * t) + 0.015 * np.sin(2 * np.pi * 1500 * t)
+    return sig.astype(np.float32)
+
+
+class SongAudio:
+    label = "song"
+
+    def __init__(self):
+        self.sig, self.i = _song(), 0
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    def read(self):
+        chunk = self.sig[self.i:self.i + music.RATE // 40]
+        self.i += music.RATE // 40
+        return chunk
+
+
+def _run_music(tmp_path, **opts):
+    config = Config(tmp_path / f"c{len(opts)}{sorted(opts.items())}.json".replace(" ", ""))
+    config.section("music").update(**opts)
+    src = music.MusicSource(config, audio_factory=SongAudio)
+    src.open()
+    smoother = Smoother(src.smoothing())
+    tg = [Target(Device("a"), {}, [(0, 0, 1, 1)] * 10, np.linspace(0, 1, 10), Smoother())]
+    out = [smoother(src.render(tg, i / 40)["a"], i / 40).copy() for i in range(400)]
+    return np.array(out[80:])
+
+
+def test_sensitivity_changes_what_reacts_not_just_brightness(tmp_path):
+    low = _run_music(tmp_path, sensitivity=0.5, feel="jumpy")
+    high = _run_music(tmp_path, sensitivity=2.0, feel="jumpy")
+    lit_low = (low.max(axis=2) > 40).mean()
+    lit_high = (high.max(axis=2) > 40).mean()
+    assert lit_high > lit_low * 2                # more of the light takes part
+
+
+def test_flowing_feel_has_no_sudden_jumps(tmp_path):
+    jumpy = _run_music(tmp_path, mode="pulse", feel="jumpy")
+    flowing = _run_music(tmp_path, mode="pulse", feel="flowing")
+    big = lambda o: (np.abs(np.diff(o, axis=0)).max(axis=(1, 2)) > 80).mean()
+    assert big(jumpy) > 0.02 and big(flowing) == 0

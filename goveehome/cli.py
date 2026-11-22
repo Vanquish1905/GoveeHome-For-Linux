@@ -159,6 +159,8 @@ def cmd_music(args) -> int:
             config.section("music")["mode"] = args.mode
         if args.palette:
             config.section("music")["palette"] = args.palette
+        if args.feel:
+            config.section("music")["feel"] = args.feel
         if args.colors:
             try:
                 hexes = ["#{:02x}{:02x}{:02x}".format(*parse_color(c)) for c in args.colors.split(";")]
@@ -415,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("targets", nargs="*", help="lights to use (default: all with music enabled in the app)")
     s.add_argument("--mode", choices=list(MUSIC_MODES))
     s.add_argument("--palette", choices=list(PALETTES))
+    s.add_argument("--feel", choices=["flowing", "jumpy"])
     s.add_argument("--colors", metavar="'#ff0000;#00ff00;...'",
                    help="your own colours, separated by ';' (uses the custom palette)")
     s.set_defaults(func=cmd_music)
