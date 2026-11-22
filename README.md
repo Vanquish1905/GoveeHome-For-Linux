@@ -14,13 +14,17 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 - Power, brightness, colour, white temperature, saved colours and sleep timers
 - Groups, plus an *All lights* group
 
-**Screen sync**: the lights take their colours from your screen, in one of two styles:
-- *Whole light, like GoveeScreen* (the default): every light shows the colour of the screen
-  (its most present vivid colour, or its average) and its brightness follows how bright the
-  screen is. *Colour strength* sends that colour clearly instead of as the pale mix a screen
-  average is, which lights would show as white. This is a port of the screen sync of [GoveeScreen](https://github.com/Baba0bab/GoveeScreen)
-  for Windows, and it works with every Govee light that has LAN control
-- *Zones per segment*: segment lights get one colour per part of the screen they sit next to
+**Screen sync**: the lights take their colours from your screen, in one of three styles:
+- *9 parts of the screen* (the default): the screen is split into a 3×3 grid and each part's
+  average colour is tracked. Every segment of a light shows the colour of the part it sits
+  next to (from the light's mounting); lights that show one colour get the colour and the
+  brightness of the screen
+- *Whole light, like GoveeScreen*: every light shows the colour of the screen (its most
+  present vivid colour, or its average) and its brightness follows how bright the screen
+  is. This is a port of the screen sync of [GoveeScreen](https://github.com/Baba0bab/GoveeScreen)
+- *Zones per segment* (advanced): free zones along the screen edges, with more tuning
+- *Colour strength* sends the colours clearly instead of as the pale mixes screen averages
+  are, which lights would show as white. Grey and white areas stay neutral
 - Segment capable lights (TV backlights, light bars, RGBIC strips, ...) get one colour per
   segment from the part of the screen they sit next to; other lights get the colour of
   their zone
@@ -115,7 +119,17 @@ installer takes care of all of it.
 
 ## Lights
 
-Any Govee light with *LAN Control* works for control and light shows. Models the app knows
+Any Govee RGB light with *LAN Control* works for control and every light show; so do lights
+with Bluetooth (with Bluetooth turned on in Preferences):
+
+| The light can… | Screen sync, music and effects send |
+| --- | --- |
+| take segment streaming over LAN (DreamView / Razer) | one colour per segment |
+| take plain colours over LAN (every light with LAN Control) | one colour + its brightness |
+| only be reached over Bluetooth | one colour + its brightness, over Bluetooth |
+| only be reached through the Govee cloud | nothing: the cloud allows about 10 000 requests a day, too few to follow a screen. Turn on LAN Control for it |
+
+Which way a light takes colours is found out with the *colour test* on its page. Models the app knows
 get the right segment count and mounting preset out of the box, among them:
 
 | Kind | Models |
@@ -159,7 +173,14 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
 
 ## How screen sync works
 
-**Whole light (default).** Like GoveeScreen: the frame is captured (see 1. below), black bars
+**9 parts (default).** The frame (see 1. below) loses the panel / taskbar strip and black
+bars at the top and bottom, and is split into a 3×3 grid. Each part's average colour is
+taken and strengthened like below. A light that streams segments gets, for every segment,
+the colour of the part its zone falls into (from its mounting; *Whole screen* lights run
+around the screen), dimmed to that part's brightness. Other lights get one colour and the
+brightness of the screen, as in the *Whole light* style. Smoothing and sending as there.
+
+**Whole light.** Like GoveeScreen: the frame is captured (see 1. below), black bars
 at the top and bottom and the panel / taskbar strip are left out, and the rest is averaged
 (or its dominant vivid hue is taken, sliding back to the average when little of the picture
 is colourful). The colour is sent with a plain colour command, at full strength unless

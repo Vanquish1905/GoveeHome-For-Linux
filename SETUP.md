@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.3-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.4-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -137,7 +137,14 @@ like `ihoment_H6199_XXXX`.
 
 Screen sync → **Style**:
 
-- **Whole light, like GoveeScreen** (the default): each light shows the colour of the
+- **9 parts of the screen (3×3)** (the default): the screen is split into nine parts and
+  each part's average colour is tracked. Every segment of a light shows the colour of the
+  part it sits next to, so set the *Mounting* on the light's page (next section); a strip
+  left on *Whole screen* runs around the screen, up the left, across the top, down the
+  right and along the bottom. Lights that only show one colour get the colour and the
+  brightness of the screen. The options below (colour strength, intensity, smoothing,
+  panel) apply here too.
+- **Whole light, like GoveeScreen**: each light shows the colour of the
   screen and its brightness follows how bright the screen is, exactly like GoveeScreen on
   Windows. Works with every light that has LAN control and needs no setup. Options:
   *Colour* (dominant or average), *Colour strength* (how clearly the screen's colour is
@@ -148,9 +155,11 @@ Screen sync → **Style**:
   how they're mounted (next section). The settings for it (colour pick, vividness, smoothing,
   edge depth) only show when this style is selected.
 
-If you're not sure, keep *Whole light*. You can switch while screen sync runs.
+If you're not sure, keep *9 parts*. You can switch while screen sync runs. If segment lights
+show one colour only, run the *colour test* on the light's page: it finds out whether the
+light takes a colour per segment.
 
-### Tell the app how each light is mounted (zones style)
+### Tell the app how each light is mounted
 
 Open a light and scroll to **Light shows**:
 
