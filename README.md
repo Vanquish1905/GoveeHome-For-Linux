@@ -16,8 +16,9 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 
 **Screen sync**: the lights take their colours from your screen, in one of two styles:
 - *Whole light, like GoveeScreen* (the default): every light shows the colour of the screen
-  (its average, or its most present vivid colour) and its brightness follows how bright the
-  screen is. This is a port of the screen sync of [GoveeScreen](https://github.com/Baba0bab/GoveeScreen)
+  (its most present vivid colour, or its average) and its brightness follows how bright the
+  screen is. *Colour strength* sends that colour clearly instead of as the pale mix a screen
+  average is, which lights would show as white. This is a port of the screen sync of [GoveeScreen](https://github.com/Baba0bab/GoveeScreen)
   for Windows, and it works with every Govee light that has LAN control
 - *Zones per segment*: segment lights get one colour per part of the screen they sit next to
 - Segment capable lights (TV backlights, light bars, RGBIC strips, ...) get one colour per
@@ -47,18 +48,20 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 
 **Music sync**: the lights react to whatever the PC plays, straight from the audio output
 (no microphone). Six modes (spectrum, mirrored spectrum, energy, beat pulse, bass glow,
-rolling) and 25 colour palettes, including your own colours.
+rolling), 25 colour palettes including your own colours, a *Feel* setting (flowing: colours
+glide with the music; jumpy: flashes and colour jumps on every beat) and a *Sensitivity*
+that decides how much of the music the lights react to.
 
-**Effects**: 102 effects rendered on the PC, no cloud needed, with live animated previews on
+**Effects**: 117 effects rendered on the PC, no cloud needed, with live animated previews on
 the effects page:
+- *Slow and smooth* (15): nothing jumps; colours change gradually and moving lights glide
+  LED by LED. Travelling light, two travellers, colour journey, slow comet, Christmas
+  (red, green and warm white slowly travelling around the strip), lightning storm (shifting
+  blues with strikes at irregular moments), ember glow, calm ocean, starlight and more
 - *Animated* (42): moving, multi-coloured animations like juggle, bouncing balls, ripple,
-  confetti, meteor shower, colour rain, pacifica, fireflies, hyperspace, plasma ball,
-  kaleidoscope, galaxy, stained glass, disco ball, comets in five colours and colour flows
-- *Moods* (16): slowly flowing colour worlds like peacock, unicorn, synthwave, northern
-  lights, glacier, cherry blossom and autumn
-- *Colourful*, *Your colours*, *Nature* and *Party and seasons*: rainbow, plasma, fire,
-  candle, lava lamp, aurora, thunderstorm, snowfall, sunrise alarm, fireworks, Christmas,
-  Halloween, Valentine, New Year and more
+  confetti, meteor shower, colour rain, pacifica, fireflies, hyperspace and plasma ball
+- *Moods* (16): slowly flowing colour worlds like peacock, unicorn, synthwave and glacier
+- *Colourful*, *Your colours*, *Nature* and *Party and seasons*
 - Speed, brightness, size, direction and up to three of your own colours
 
 **For every light show you choose which lights take part**, one by one, all at once or by
@@ -159,8 +162,9 @@ Targets can be a name (or part of one), an IP address, a device id, or `all`.
 **Whole light (default).** Like GoveeScreen: the frame is captured (see 1. below), black bars
 at the top and bottom and the panel / taskbar strip are left out, and the rest is averaged
 (or its dominant vivid hue is taken, sliding back to the average when little of the picture
-is colourful). The colour is sent as it is with a plain colour command, and the light's
-brightness is set separately to the brightness of the picture (×0.5, ×1, ×2 or full with
+is colourful). The colour is sent with a plain colour command, at full strength unless
+*Colour strength* is off (the brightness already travels separately, so the colour doesn't
+have to carry it), and the light's brightness is set separately to the brightness of the picture (×0.5, ×1, ×2 or full with
 *Intensity*). Changes are smoothed (35 % per 33 ms), sent at most 30 times a second and only
 when they're big enough to see.
 

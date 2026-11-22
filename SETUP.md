@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.2-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.3-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -140,8 +140,10 @@ Screen sync → **Style**:
 - **Whole light, like GoveeScreen** (the default): each light shows the colour of the
   screen and its brightness follows how bright the screen is, exactly like GoveeScreen on
   Windows. Works with every light that has LAN control and needs no setup. Options:
-  *Colour* (average or dominant), *Intensity* (50 %, 100 %, 200 %, max), *Smooth
-  transitions*, *Leave out the panel / taskbar*.
+  *Colour* (dominant or average), *Colour strength* (how clearly the screen's colour is
+  shown; a plain screen average is a pale mix that lights show as almost white, so keep it
+  at *Strong* unless you want exactly GoveeScreen's output), *Intensity* (50 %, 100 %,
+  200 %, max), *Smooth transitions*, *Leave out the panel / taskbar*.
 - **Zones per segment**: segment lights get a colour per part of the screen, depending on
   how they're mounted (next section). The settings for it (colour pick, vividness, smoothing,
   edge depth) only show when this style is selected.
@@ -263,10 +265,20 @@ involved and room noise doesn't matter. Modes:
 sunset, aurora, pastel, candy, cyberpunk, vaporwave, lava, ice, gold, love, purple rain,
 tropical, retro, club, Christmas, Halloween, white) or **Your colours**: up to six colours
 you choose under *Your colours* with the + and − buttons. Changing one of them switches to
-your palette. *Sensitivity* sets how strongly it reacts.
+your palette. **Feel**: *Flowing* lets colours glide with the music, *Jumpy* flashes and
+jumps to a new colour on every beat. **Sensitivity** decides what the lights react to: low
+means only strong peaks and clear beats, high means quiet details move the lights too and
+beats are picked up more easily. *Brightness* is a separate slider.
 
-**Effects** (sidebar, Ctrl+3) are 102 effects rendered on the PC, in six groups. Every card
-plays a live preview of its effect while the page is open.
+**Effects** (sidebar, Ctrl+3) are 117 effects rendered on the PC, in seven groups. Every
+card plays a live preview of its effect while the page is open.
+
+- *Slow and smooth*: nothing jumps, colours change gradually and moving lights glide from
+  LED to LED: slow rainbow, colour drift, travelling light (one light travelling around the
+  strip), two travellers, colour journey, slow comet, Christmas (red, green and warm white
+  slowly travelling around the strip), lightning storm (shifting blues, strikes at
+  irregular moments, never the same gap twice in a row), ember glow, calm ocean, starlight,
+  pastel drift, sunset drift, soft breathing colours, slow northern lights
 
 - *Animated*: moving, multi-coloured animations: juggle, sweep, beat bands, confetti,
   bouncing balls, ripple, rainbow chase, colour blocks, RGB spin, candy stripes, neon chase,
@@ -433,11 +445,11 @@ Go through [Getting the colours to match](#getting-the-colours-to-match). With m
 monitor make sure the right one is captured (Wayland: *Ask again* and pick it; X11:
 *Capture → Monitor*).
 
-**Screen sync: the colours don't match the screen**
+**Screen sync: the colours don't match the screen, or the light is white most of the time**
 
-Make sure *Style* is **Whole light, like GoveeScreen** (the default since 1.8.2). It shows
-what is really on the screen, averaged, and sets the brightness to match. With *Colour:
-Dominant* it prefers the most present vivid colour.
+Make sure *Style* is **Whole light, like GoveeScreen** (the default since 1.8.2), *Colour* is
+*Dominant colour* and *Colour strength* is *Strong* or *Full* (the defaults since 1.8.3). A
+plain average of a screen is a pale mix of everything on it; lights show that as white.
 
 **Screen sync: the lights show different colours than the screen (e.g. blue instead of red)**
 
