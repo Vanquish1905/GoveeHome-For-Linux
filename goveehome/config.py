@@ -68,6 +68,8 @@ DEFAULTS: dict = {
     },
     "groups": [],                 # [{"id": ..., "name": ..., "members": [device ids]}]
     "favorite_colors": [],        # ["#rrggbb", ...]
+    "segment_presets": [],        # [{"name": ..., "colours": ["#rrggbb", ...]}]
+    "schedules": [],              # see goveehome.schedules
     "background": {
         "keep_running": True,     # keep a running light show going when the window closes
         "autostart": False,
@@ -98,6 +100,7 @@ DEVICE_DEFAULTS: dict = {
     "reverse": False,
     "gradient": True,
     "gains": [1.0, 1.0, 1.0],     # white balance for light shows
+    "segment_colours": None,      # ["#rrggbb" or None per segment], last painted segment colours
 }
 
 

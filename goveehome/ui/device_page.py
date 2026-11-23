@@ -8,7 +8,7 @@ from goveehome.models import Device
 from goveehome.protocol import cloud
 from goveehome.sync.zones import LAYOUTS
 from goveehome.ui.control_page import ControlPage
-from goveehome.ui.widgets import ColorPanel, Debouncer, SliderRow, color_for_state
+from goveehome.ui.widgets import Debouncer, SliderRow, color_for_state
 
 LAYOUT_IDS = list(LAYOUTS)
 
@@ -21,6 +21,12 @@ class DevicePage(ControlPage):
 
         self.build_summary()
         self.build_light()
+        self.segment_editor = None
+        if self.manager.segment_count(device) > 1 and self.manager.segment_routes(device):
+            from goveehome.ui.segment_editor import SegmentEditor
+            self.segment_editor = SegmentEditor(self)
+            for group in self.segment_editor.groups:
+                self.page.add(group)
         if device.cloud:
             self._build_scenes()
             self._build_cloud_extras()
@@ -58,33 +64,6 @@ class DevicePage(ControlPage):
 
     def _build_cloud_extras(self):
         caps = self.device.cloud_capabilities
-        count = skus.segment_count(self.device.sku, cloud.segment_count(caps))
-        if count > 1 and self.manager.cloud:
-            self._segment_buttons: list[Gtk.ToggleButton] = []
-            flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                               max_children_per_line=15, min_children_per_line=5,
-                               column_spacing=4, row_spacing=4,
-                               margin_top=8, margin_bottom=4, margin_start=8, margin_end=8)
-            for i in range(count):
-                b = Gtk.ToggleButton(label=str(i + 1))
-                self._segment_buttons.append(b)
-                flow.append(b)
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-            box.append(flow)
-            actions = Gtk.Box(spacing=6, margin_start=8, margin_bottom=8)
-            for label, value in (("Select all", True), ("Clear", False)):
-                btn = Gtk.Button(label=label)
-                btn.add_css_class("flat")
-                btn.connect("clicked", lambda _b, v=value: [s.set_active(v) for s in self._segment_buttons])
-                actions.append(btn)
-            box.append(actions)
-            pick = Adw.PreferencesRow(activatable=False, title="Segments")
-            pick.set_child(box)
-            panel = ColorPanel(self.app, self._paint_segments, title="Segments",
-                               description="Pick segments, then a colour. This goes through the "
-                                           "cloud, so it takes a moment.", first_row=pick)
-            self.page.add(panel.group)
-
         modes = cloud.music_modes(caps)
         if modes and self.manager.cloud:
             group = Adw.PreferencesGroup(title="Music mode on the light",
@@ -117,13 +96,6 @@ class DevicePage(ControlPage):
                     row.add_suffix(b)
                 group.add(row)
             self.page.add(group)
-
-    def _paint_segments(self, rgb):
-        chosen = [i for i, b in enumerate(self._segment_buttons) if b.get_active()]
-        if not chosen:
-            self.window.toast("Select one or more segments first")
-            return
-        self.manager.set_segment_color(self.device, chosen, rgb)
 
     def _start_music_mode(self, *_):
         idx = self.music_row.get_selected()
@@ -347,6 +319,8 @@ class DevicePage(ControlPage):
 
     def _save_sync(self, **changes):
         self.app.config.update_device_settings(self.device.id, **changes)
+        if "segments" in changes and self.segment_editor is not None:
+            self.segment_editor.set_count(self.manager.segment_count(self.device))
         self._update_sync_sensitivity()
         self._notify_shows()
 

@@ -72,6 +72,12 @@ def razer_message(frame: bytes) -> bytes:
     return build_message("razer", {"pt": razer.encode(frame)})
 
 
+def pt_real_message(packets: Sequence[bytes]) -> bytes:
+    """Bluetooth style packets for the light, sent over the LAN."""
+    import base64
+    return build_message("ptReal", {"command": [base64.b64encode(p).decode() for p in packets]})
+
+
 def parse_status(data: dict) -> dict:
     """Turn a devStatus reply into DeviceState keyword arguments."""
     out: dict = {}
@@ -182,6 +188,11 @@ class LanClient:
 
     def request_status(self, ip: str) -> None:
         self.send(ip, status_message())
+
+    def pt_real(self, ip: str, packets: Sequence[bytes]) -> None:
+        # a few packets per message, lights drop very long messages
+        for i in range(0, len(packets), 8):
+            self.send(ip, pt_real_message(packets[i:i + 8]))
 
     def stream_enable(self, ip: str, enabled: bool) -> None:
         self.send(ip, razer_message(razer.enable_frame(enabled)))

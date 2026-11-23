@@ -58,8 +58,8 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
     def _background_group(self):
         group = Adw.PreferencesGroup(title="Running in the background")
-        self._switch(group, "background", "keep_running", "Keep light shows running when the window is closed",
-                     "Open GoveeHome again to get the window back")
+        self._switch(group, "background", "keep_running", "Keep running when the window is closed",
+                     "Light shows and schedules go on. Open GoveeHome again to get the window back")
         self._switch(group, "background", "autostart", "Start at login",
                      "Starts without a window", on_change=self.app.set_autostart)
         self._switch(group, "background", "resume_show", "Continue the last light show on start")

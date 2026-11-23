@@ -383,6 +383,83 @@ class DeviceManager:
     def set_segment_color(self, device: Device, segments: list[int], rgb: RGB) -> None:
         self._cloud(device, lambda c: c.segment_color(device.sku, device.id, segments, rgb))
 
+    # segment colours -----------------------------------------------------------
+    def segment_count(self, device: Device) -> int:
+        from goveehome.segments import MAX_SEGMENTS
+        stored = self.config.device_settings(device.id).get("segments")
+        return max(1, min(MAX_SEGMENTS, int(stored or self.default_segments(device))))
+
+    def segment_routes(self, device: Device) -> list[str]:
+        """Ways segment colours can reach this light, best first."""
+        routes = []
+        if device.ip:
+            routes.append("lan")
+        if device.ble_address and self.config.get("bluetooth"):
+            routes.append("ble")
+        if device.cloud and self.cloud:
+            routes.append("cloud")
+        return routes
+
+    def paint_segments(self, device: Device, colours, via: str = "auto", brightness: dict | None = None) -> bool:
+        """Give each segment its own colour; None leaves a segment as it is.
+
+        brightness maps a percentage to the segments that get it. Returns False
+        when the light can't be reached.
+        """
+        from goveehome import segments as seg
+        colours = list(colours)
+        count = len(colours)
+        groups = seg.group_colours(colours)
+        bright = [(int(p), list(s)) for p, s in (brightness or {}).items() if s]
+        routes = self.segment_routes(device)
+        route = routes[0] if via == "auto" and routes else via
+        if route not in routes:
+            self._error(f"{device.display_name} is not reachable right now")
+            return False
+        if device.id in self._stream_state:
+            self.stream_stop(device, restore=False)
+        packets = [seg.colour_packet(s, rgb, count) for rgb, s in groups]
+        packets += [seg.brightness_packet(s, p, count) for p, s in bright]
+        device.state.merge(on=True)
+        if groups:
+            first = groups[0][0]
+            device.state.merge(color=first, kelvin=0)
+        if route == "lan":
+            self.lan.turn(device.ip, True)
+            self.lan.pt_real(device.ip, packets)
+            threading.Timer(0.6, self.lan.request_status, args=(device.ip,)).start()
+        elif route == "ble":
+            for packet in [ble.power_packet(True), *packets]:
+                try:
+                    self._ble_pending.append(self.ble.write(device.ble_address, packet))
+                except RuntimeError as exc:
+                    self._error(str(exc))
+                    return False
+        else:
+            def run():
+                try:
+                    for rgb, s in groups:
+                        self.cloud.segment_color(device.sku, device.id, s, rgb)
+                    for p, s in bright:
+                        self.cloud.segment_brightness(device.sku, device.id, s, p)
+                except CloudError as exc:
+                    self._error(f"{device.display_name}: {exc}")
+            self._pool.submit(run)
+        self.config.update_device_settings(
+            device.id, segment_colours=seg.to_hex_list(self._merge_painted(device, colours)))
+        self._emit("updated", device)
+        return True
+
+    def _merge_painted(self, device: Device, colours) -> list:
+        from goveehome import segments as seg
+        old = seg.from_hex_list(self.config.device_settings(device.id).get("segment_colours"), len(colours))
+        return [c if c is not None else o for c, o in zip(colours, old)]
+
+    def painted_segments(self, device: Device) -> list:
+        from goveehome import segments as seg
+        return seg.from_hex_list(self.config.device_settings(device.id).get("segment_colours"),
+                                 self.segment_count(device))
+
     def set_music_mode(self, device: Device, mode: int, sensitivity: int) -> None:
         self._cloud(device, lambda c: c.music_mode(device.sku, device.id, mode, sensitivity))
 

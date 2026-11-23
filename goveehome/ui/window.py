@@ -17,7 +17,7 @@ SHOWS = [
     ("effects", "Effects", "Animated scenes", "starred-symbolic"),
 ]
 
-SECTION_TITLES = {0: "Light shows", 1: "Groups", 2: "Lights"}
+SECTION_TITLES = {0: "Light shows", 0.5: "Automation", 1: "Groups", 2: "Lights"}
 
 
 class SidebarRow(Gtk.ListBoxRow):
@@ -69,6 +69,16 @@ class GroupRow(SidebarRow):
 
     def sort_key(self):
         return (1, "" if self.group_id == ALL_LIGHTS else self.title.get_label().lower())
+
+
+class SchedulesRow(SidebarRow):
+    section = 0.5
+
+    def __init__(self):
+        super().__init__("Schedules", "Lights on, off and sunrise by time", icon="alarm-symbolic")
+
+    def sort_key(self):
+        return (0.5, "")
 
 
 class UpdateRow(SidebarRow):
@@ -199,6 +209,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_rows[kind] = row
             self.list.append(row)
 
+        self.schedules_row = SchedulesRow()
+        self.list.append(self.schedules_row)
+        self.schedules_page = None
+
         self.new_group_row = NewGroupRow()
         self.list.append(self.new_group_row)
 
@@ -287,6 +301,12 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_row_activated(self, _list, row):
         if isinstance(row, ShowRow):
             self.split.set_content(self.show_pages[row.kind])
+        elif isinstance(row, SchedulesRow):
+            if self.schedules_page is None:
+                from goveehome.ui.schedules_page import SchedulesPage
+                self.schedules_page = SchedulesPage(self)
+            self.schedules_page.refresh()
+            self.split.set_content(self.schedules_page)
         elif isinstance(row, NewGroupRow):
             edit_group_dialog(self)
             return

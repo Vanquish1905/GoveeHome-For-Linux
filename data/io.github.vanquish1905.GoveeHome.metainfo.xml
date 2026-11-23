@@ -36,6 +36,13 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.6" date="2026-11-23">
+      <description>
+        <p>Segment colours: give every segment of a light its own colour, with fills, presets and
+        brightness per segment. Schedules: lights on and off, colours and a sunrise wake-up at
+        set times. A segments command for the command line.</p>
+      </description>
+    </release>
     <release version="1.8.5" date="2026-11-22">
       <description>
         <p>More colourful screen sync per segment, and 50 screen parts for more detail, with a

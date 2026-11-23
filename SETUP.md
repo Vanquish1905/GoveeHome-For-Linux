@@ -9,7 +9,7 @@ music. Fedora is covered first, other distributions follow further down.
 4. [First start](#4-first-start)
 5. [Set up screen sync](#5-set-up-screen-sync)
 6. [Music and effects](#6-music-and-effects)
-7. [Groups, timers and saved colours](#7-groups-timers-and-saved-colours)
+7. [Groups, timers, segment colours and schedules](#7-groups-timers-segment-colours-and-schedules)
 8. [Running in the background](#8-running-in-the-background)
 9. [Optional: cloud API key](#9-optional-cloud-api-key)
 10. [Optional: Bluetooth](#10-optional-bluetooth)
@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.5-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.6-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -317,7 +317,7 @@ that use your colours.
 Only one light show runs at a time. Starting another one stops the current one; Ctrl+.
 stops all of them.
 
-## 7. Groups, timers and saved colours
+## 7. Groups, timers, segment colours and schedules
 
 - **Groups**: *New group…* in the sidebar (or Ctrl+G). A group has the same controls as a
   single light and sends them to every light in it. *All lights* is always there.
@@ -325,6 +325,28 @@ stops all of them.
   run in the app, so it has to keep running (see the next section).
 - **Saved colours**: pick a custom colour and press **+** next to it. Saved colours show up
   on every light and group. Right-click one to remove it.
+- **Segment colours**: on the page of a light with segments (strips, rope lights, bars)
+  there is a row of numbered boxes, one per segment. Click a box to select it, drag over
+  several, or Shift-click for a range; *All*, *None*, *Invert* and *Every other* help too.
+  Then pick a colour and only those segments change. With nothing selected the colour goes
+  to the whole light. Under *More for segments*:
+  - *Brightness of the selected segments*
+  - *Fill*: a gradient between two colours, a rainbow, two alternating colours or a gradient
+    mirrored from the middle, over the selected segments (or all of them)
+  - *Presets*: built-in looks (Sunset, Ocean, Christmas, …) and your own: type a name under
+    *Save these colours as a preset*
+  - *Send through*: when the light is reachable in more than one way. The colours go over
+    the LAN by default. If a light doesn't react, try *Govee cloud* (needs the API key,
+    section 9), and check that the number of *Segments* under *Light shows* is right.
+
+  The light keeps the colours, the app doesn't have to stay open. A running light show on
+  that light is stopped first.
+- **Schedules**: *Schedules* in the sidebar. Press **+** (or a *Quick start* entry), choose
+  the time, the days, the lights (all, a group or one light) and what should happen: on,
+  off, a colour, a brightness, segment colours from a preset, a light show, a **sunrise**
+  (from a deep red glow to warm white over the chosen minutes) or a **sunset** (the other
+  way, then off). ▶ runs a schedule right away to try it. Schedules run while the app runs:
+  turn on *Keep running when the window is closed* and *Start at login* (section 8).
 
 ## 8. Running in the background
 

@@ -98,6 +98,41 @@ def cmd_color(args) -> int:
     return _each(args, lambda m, d: m.set_color(d, rgb))
 
 
+def cmd_segments(args) -> int:
+    from goveehome import segments as seg
+
+    def paint(m, d):
+        n = m.segment_count(d)
+        if args.preset:
+            if args.preset not in seg.BUILT_IN and args.preset not in [
+                    p["name"] for p in m.config.get("segment_presets") or []]:
+                names = ", ".join([*seg.BUILT_IN, *[p["name"] for p in m.config.get("segment_presets") or []]])
+                raise SystemExit(f"No preset {args.preset!r}. Presets: {names}")
+            preset = next((p["colours"] for p in m.config.get("segment_presets") or []
+                           if p["name"] == args.preset), args.preset)
+            colours = seg.preset_colours(preset, n)
+        elif args.fill:
+            if args.fill[0] not in seg.FILLS:
+                raise SystemExit(f"Unknown fill {args.fill[0]!r}. Fills: {', '.join(seg.FILLS)}")
+            a = parse_color(args.fill[1]) if len(args.fill) > 1 else (255, 0, 0)
+            b = parse_color(args.fill[2]) if len(args.fill) > 2 else (0, 0, 255)
+            colours = seg.fill(args.fill[0], n, a, b)
+        else:
+            colours = [None] * n
+            try:
+                for spec in args.specs:
+                    for segs, rgb in seg.parse_spec(spec, n):
+                        for i in segs:
+                            colours[i] = rgb
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+        if all(c is None for c in colours):
+            raise SystemExit("Nothing to paint. Example: goveehome-cli segments 'Desk' 1-5=red 6-10=#0080ff")
+        if m.paint_segments(d, colours, via=args.via):
+            print(f"{d.display_name}: {n} segments painted")
+    return _each(args, paint)
+
+
 def cmd_temp(args) -> int:
     return _each(args, lambda m, d: m.set_kelvin(d, args.kelvin))
 
@@ -405,6 +440,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("target")
     s.add_argument("kelvin", type=int)
     s.set_defaults(func=cmd_temp)
+
+    from goveehome import segments as _seg
+    s = sub.add_parser("segments", help="give single segments their own colour, e.g. 1-5=red 6-10=blue")
+    s.add_argument("target", help="name, IP, id or 'all'")
+    s.add_argument("specs", nargs="*", metavar="SEGMENTS=COLOUR",
+                   help="'1-5=red', '3,7=#00ff00' or 'all=blue'; segments count from 1")
+    s.add_argument("--preset", help=f"a saved preset or one of: {', '.join(_seg.BUILT_IN)}")
+    s.add_argument("--fill", nargs="+", metavar="KIND",
+                   help=f"fill all segments: {', '.join(_seg.FILLS)}, then up to two colours, "
+                        "e.g. --fill gradient red blue")
+    s.add_argument("--via", choices=["auto", "lan", "ble", "cloud"], default="auto")
+    s.set_defaults(func=cmd_segments)
 
     s = sub.add_parser("sync", help="mirror the screen colours to lights until stopped")
     s.add_argument("targets", nargs="*", help="lights to use (default: all with sync enabled in the app)")

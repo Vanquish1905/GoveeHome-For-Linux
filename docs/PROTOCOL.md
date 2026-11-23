@@ -72,6 +72,16 @@ when the picture doesn't change. The "on" frame is sent once at the start and ag
 after a pause of more than three seconds; repeating it while frames flow makes some lights
 blink.
 
+### Bluetooth packets over the LAN (`ptReal`)
+
+Packets from the Bluetooth table below can be sent over the LAN, base64 encoded:
+
+```json
+{"msg":{"cmd":"ptReal","data":{"command":["MwUVAf8AAAAAAAAABwAAAAAAANo=", "..."]}}}
+```
+
+The app uses this for segment colours, a few packets per message.
+
 Light bar pairs (H6046, H6047, H6056) take the colours for both bars in one frame: the
 first half of the colours is one bar, the second half the other, each counted from the top.
 The H6056 has 12 segments (6 per bar) even though the cloud API reports 15.
@@ -88,6 +98,8 @@ the XOR of the first 19, unused bytes are zero.
 | `33 05 02 RR GG BB` | colour (older strips) |
 | `33 05 0D RR GG BB` | colour (most models since 2020) |
 | `33 05 15 01 RR GG BB 00 00 00 00 00 FF 7F` | colour on all segments (some RGBIC strips) |
+| `33 05 15 01 RR GG BB 00 00 00 00 00 M0 M1 …` | colour on the segments in the mask: bit 0 of `M0` is segment 1, up to 7 mask bytes |
+| `33 05 15 02 BR M0 M1 …` | brightness 1..100 for the segments in the mask |
 | `AA 01` | keep-alive, sent every 2 s while connected |
 
 Lights advertise as `ihoment_<SKU>_XXXX`, `Govee_<SKU>_XXXX`, `GBK_...` or `Minger_...`.

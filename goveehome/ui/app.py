@@ -79,6 +79,7 @@ class Application(Adw.Application):
         self._timers: dict[str, tuple[int, float]] = {}
         self._asleep: dict = {}
         self.power = None
+        self.scheduler = None
         self.restart_requested = False
         self.update_info = None
 
@@ -127,6 +128,11 @@ class Application(Adw.Application):
         self.power = PowerWatcher(self._on_sleep, self._on_wake)
         self.power.start()
 
+        from goveehome.schedules import Scheduler
+        self.scheduler = Scheduler(self.config, self.manager,
+                                   start_show=lambda kind: GLib.idle_add(lambda: (self.start_show(kind), False)[1]))
+        self.scheduler.start()
+
         bg = self.config.section("background")
         resume_once = bg.get("resume_once")
         if resume_once:
@@ -165,6 +171,8 @@ class Application(Adw.Application):
             engine.stop()
         if self.power:
             self.power.stop()
+        if self.scheduler:
+            self.scheduler.stop()
         self.manager.stop()
         Adw.Application.do_shutdown(self)
 
@@ -197,7 +205,7 @@ class Application(Adw.Application):
             if message and not running:
                 self.window.toast(message)
         if not running and not any(e.running for e in self.engines.values()):
-            if self.window is not None and not self.window.get_visible():
+            if self.window is not None and not self.window.get_visible() and not self._schedules_waiting():
                 self._release()
         return GLib.SOURCE_REMOVE
 
@@ -208,12 +216,15 @@ class Application(Adw.Application):
 
     # background ---------------------------------------------------------------
     def keep_in_background(self) -> bool:
-        """Called when the window is closed: keep running if a show is on."""
+        """Called when the window is closed: keep running if a show is on or schedules wait."""
         if self.config.section("background").get("keep_running", True) and \
-                any(e.running for e in self.engines.values()):
+                (self._schedules_waiting() or any(e.running for e in self.engines.values())):
             self._hold()
             return True
         return False
+
+    def _schedules_waiting(self) -> bool:
+        return any(s.get("enabled", True) and s.get("days") for s in self.config.get("schedules") or [])
 
     def _hold(self):
         if not self._held:

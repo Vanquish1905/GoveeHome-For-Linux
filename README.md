@@ -13,6 +13,12 @@ screen and your music, like DreamView and music mode in the Govee PC app.
 - Finds your lights on the local network by itself (Govee LAN API, no account needed)
 - Power, brightness, colour, white temperature, saved colours and sleep timers
 - Groups, plus an *All lights* group
+- **Segment colours**: give every segment of a strip its own colour, like the segment
+  colouring in the Govee app. Click or drag over segments, pick a colour; gradients, rainbow,
+  alternating fills, brightness per segment, built-in and saved presets. Works over the LAN
+  (no account needed), Bluetooth or the cloud, and the light keeps the colours by itself
+- **Schedules**: turn lights on or off, set a colour, the brightness or segment colours, start
+  a light show, or wake up with a sunrise and fall asleep with a sunset, on chosen days
 
 **Screen sync**: the lights take their colours from your screen, in one of three styles:
 - *Parts of the screen* (the default): the screen is split into 50 parts (10×5), or 9 parts
@@ -157,6 +163,9 @@ goveehome-cli color "TV backlight" "#ff7a00"
 goveehome-cli color all 255 0 80
 goveehome-cli brightness all 40
 goveehome-cli temp 192.168.1.42 3000
+goveehome-cli segments "Neon rope" 1-5=red 6-10=#0080ff all=white   # later ones win
+goveehome-cli segments "Neon rope" --fill gradient red blue
+goveehome-cli segments "Neon rope" --preset Sunset
 goveehome-cli sync                                  # screen sync until Ctrl+C
 goveehome-cli sync "Flow Plus" "TV"                 # only these lights
 goveehome-cli music --mode mirror --palette neon
