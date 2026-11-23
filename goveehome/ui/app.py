@@ -177,12 +177,14 @@ class Application(Adw.Application):
         Adw.Application.do_shutdown(self)
 
     # light shows -------------------------------------------------------------
-    def start_show(self, kind: str) -> None:
+    def start_show(self, kind: str, device_ids: list[str] | None = None) -> None:
         for other, engine in self.engines.items():
             if other != kind and engine.running:
                 engine.stop(wait=True)
         self.config.set_in("background", "last_show", kind)
-        self.engines[kind].start()
+        if device_ids is not None and self.engines[kind].running:
+            self.engines[kind].stop(wait=True)
+        self.engines[kind].start(device_ids)
 
     def stop_shows(self) -> None:
         self.config.set_in("background", "last_show", "")

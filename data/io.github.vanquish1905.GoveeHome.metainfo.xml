@@ -18,7 +18,8 @@
       <li>Power, brightness, colour, white temperature, saved colours and sleep timers</li>
       <li>Screen sync: lights follow the colours on your screen, per segment on DreamView capable lights</li>
       <li>Music sync from whatever the PC plays, no microphone needed, with 25 palettes or your own colours</li>
-      <li>117 built-in effects that run without the cloud, with animated previews</li>
+      <li>143 built-in effects and colour patterns that run without the cloud, with animated previews</li>
+      <li>Segment colours, your own animations, import and export</li>
       <li>Groups, and lights that follow the computer to sleep and back</li>
       <li>Works on Wayland (GNOME, KDE Plasma) and X11</li>
       <li>Optional Govee cloud API key for lights without LAN control and for scenes</li>
@@ -36,6 +37,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.7" date="2026-11-23">
+      <description>
+        <p>26 colour patterns for the effects page. Animations made from painted frames,
+        playable on any light. Import and export of your presets and animations.</p>
+      </description>
+    </release>
     <release version="1.8.6" date="2026-11-23">
       <description>
         <p>Segment colours: give every segment of a light its own colour, with fills, presets and

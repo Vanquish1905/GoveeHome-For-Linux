@@ -141,3 +141,79 @@ def test_scheduler_runs_once_per_minute(tmp_path):
     assert {c[1] for c in turns} == {"10.0.0.1", "10.0.0.2"} and all(c[2] is False for c in turns)
     assert ("color", "10.0.0.2", (0, 255, 0)) in m.lan.calls
     assert not any(c[0] == "color" and c[1] == "10.0.0.1" for c in m.lan.calls)
+
+
+# paintings: presets and animations ------------------------------------------------------
+import numpy as np
+
+from goveehome import paintings
+from goveehome.sync import effects as fx
+
+
+def test_export_and_import_round_trip(tmp_path):
+    a = Config(tmp_path / "a.json")
+    a.set("segment_presets", [{"name": "Mine", "colours": ["#ff0000", "#00ff00", None]}])
+    a.set("animations", [paintings.new_animation("Blink", [["#ff0000"] * 3, ["#000000"] * 3])])
+    text = paintings.export_json(a)
+    b = Config(tmp_path / "b.json")
+    b.set("segment_presets", [{"name": "Mine", "colours": ["#0000ff"]}])
+    assert paintings.import_data(b, text) == (1, 1)
+    names = [p["name"] for p in b.get("segment_presets")]
+    assert names == ["Mine", "Mine (2)"]                       # nothing overwritten
+    assert b.get("segment_presets")[1]["colours"] == ["#ff0000", "#00ff00", None]
+    assert b.get("animations")[0]["frames"][1] == ["#000000"] * 3
+    # saved to disk
+    assert Config(tmp_path / "b.json").get("animations")[0]["name"] == "Blink"
+
+
+def test_import_rejects_junk_and_takes_single_items(tmp_path):
+    c = Config(tmp_path / "c.json")
+    for junk in ("not json", "{}", '{"presets": [{"name": "x"}]}', "[1, 2"):
+        try:
+            paintings.import_data(c, junk)
+        except ValueError:
+            continue
+        raise AssertionError(junk)
+    assert paintings.import_data(c, '{"name": "One", "frames": [["#ffffff"]]}') == (0, 1)
+    assert paintings.import_data(c, '{"name": "P", "colors": ["red", [0, 0, 255]]}') == (1, 0)
+    assert c.get("segment_presets")[0]["colours"] == ["#ff0000", "#0000ff"]
+
+
+def test_animation_plays_frames():
+    anim = paintings.new_animation("x", [["#ff0000", "#ff0000"], ["#0000ff", "#0000ff"]])
+    anim.update(frame_time=1.0, fade=False)
+    x = np.array([0.25, 0.75])
+    assert tuple(paintings.render_animation(anim, x, 0.2)[0]) == (255, 0, 0)
+    assert tuple(paintings.render_animation(anim, x, 1.2)[0]) == (0, 0, 255)
+    assert tuple(paintings.render_animation(anim, x, 2.2)[0]) == (255, 0, 0)   # loops
+    anim["fade"] = True
+    mid = paintings.render_animation(anim, x, 0.5)[0]
+    assert 100 < mid[0] < 160 and 100 < mid[2] < 160
+    assert tuple(paintings.render_animation(anim, x, 0.5, speed=2.0)[0]) == (0, 0, 255)
+    assert paintings.sequence(4, "bounce") == [0, 1, 2, 3, 2, 1]
+
+
+def test_run_along_frames():
+    frames = paintings.shifted_frames(["a", "b", "c"])
+    assert frames == [["a", "b", "c"], ["c", "a", "b"], ["b", "c", "a"]]
+
+
+def test_paintings_play_as_effects(tmp_path):
+    c = Config(tmp_path / "c.json")
+    c.set("segment_presets", [{"name": "Half", "colours": ["#ff0000", "#0000ff"]}])
+    anim = paintings.new_animation("Flash", [["#00ff00"], ["#000000"]])
+    c.set("animations", [anim])
+    ids = [e.id for e in fx.painting_effects(c)]
+    assert ids == ["paint:Half", f"anim:{anim['id']}"]
+    out = fx.render("paint:Half", np.linspace(0, 1, 10), 0.0, fx.Params(), c)
+    assert tuple(out[0]) == (255, 0, 0) and tuple(out[-1]) == (0, 0, 255)
+    out = fx.render(f"anim:{anim['id']}", np.linspace(0, 1, 4), 0.0, fx.Params(), c)
+    assert tuple(out[0]) == (0, 255, 0)
+    assert fx.resolve("paint:gone", c).id == "rainbow"
+
+
+def test_patterns_have_their_colours():
+    pats = [e for e in fx.EFFECTS.values() if e.category == "Patterns"]
+    assert len(pats) >= 25
+    out = fx.render("pat_candy_cane", np.linspace(0, 1, 20), 0.0, fx.Params(size=0.0))
+    assert {tuple(int(v) for v in c) for c in out} == {(255, 0, 20), (255, 255, 255)}

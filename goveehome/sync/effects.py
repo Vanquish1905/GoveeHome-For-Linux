@@ -884,6 +884,41 @@ def _chase_in(colors):
     return fn
 
 
+def _pattern(colors, style="bands"):
+    """Colour patterns: still looking, slowly drifting along the light (Speed sets how fast)."""
+    cols = np.asarray(colors, np.float32)
+    k = len(colors)
+
+    def fn(x, t, p):
+        drift = t * 0.04 * p.speed
+        if len(x) == 1:
+            # one colour lights: glide through the pattern's colours
+            return palette(colors, np.array([t * 0.08 * p.speed]))
+        if style == "bands":
+            repeats = 1 + round(p.size * 6)
+            u = (x * repeats - drift) % 1.0
+            return cols[np.clip((u * k).astype(int), 0, k - 1)]
+        if style == "soft":
+            return palette(colors, x * (1 + p.size * 4) - drift)
+        if style == "dots":
+            n = len(x)
+            idx = np.arange(n)
+            gap = 1 + round(p.size * 3)
+            shift = int(np.floor(t * 0.6 * p.speed))
+            lit = (idx + shift) % gap == 0 if gap > 1 else np.ones(n, bool)
+            which = ((idx + shift) // gap) % k
+            glow = 0.85 + 0.15 * np.sin(TAU * (t * 0.3 * p.speed + rand(idx, 4.0)))
+            base = cols[which] * glow[:, None]
+            return np.where(lit[:, None], base, base * 0.06)
+        if style == "mirror":
+            u = np.abs(x - 0.5) * 2
+            return palette(colors, u * (0.5 + p.size) - drift, cyclic=True)
+        # "blocks": the colours once over the whole light, side by side
+        u = (x - drift) % 1.0
+        return cols[np.clip((u * k).astype(int), 0, k - 1)]
+    return fn
+
+
 @dataclass(frozen=True)
 class Effect:
     id: str
@@ -895,7 +930,9 @@ class Effect:
     uses_size: bool = False
 
 
-CATEGORIES = ["Slow and smooth", "Animated", "Moods", "Colourful", "Your colours", "Nature", "Party and seasons"]
+CATEGORIES = ["Slow and smooth", "Animated", "Patterns", "Moods", "Colourful", "Your colours", "Nature",
+              "Party and seasons"]
+PAINTINGS = "Your paintings"
 
 _SLOW = [
     ("slow_rainbow", "Slow rainbow", _slow_rainbow, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), 0, False),
@@ -979,6 +1016,38 @@ _MOODS = [
     ("mood_citrus", "Citrus", [(255, 220, 0), (255, 120, 0), (180, 255, 0)]),
 ]
 
+_PATTERNS = [
+    ("pat_rainbow_bands", "Rainbow bands", "bands",
+     [(255, 0, 0), (255, 120, 0), (255, 230, 0), (0, 220, 0), (0, 120, 255), (140, 0, 255)]),
+    ("pat_candy_cane", "Candy cane", "bands", [(255, 0, 20), (255, 255, 255)]),
+    ("pat_bumblebee", "Bumblebee", "bands", [(255, 190, 0), (40, 20, 0)]),
+    ("pat_fire_ice", "Fire and ice", "bands", [(255, 70, 0), (0, 200, 255)]),
+    ("pat_retro", "Retro", "bands", [(255, 110, 0), (0, 160, 150), (255, 220, 150)]),
+    ("pat_vaporwave", "Vaporwave", "bands", [(255, 60, 200), (0, 230, 255), (130, 0, 255)]),
+    ("pat_tiger", "Tiger", "bands", [(255, 100, 0), (255, 100, 0), (25, 8, 0)]),
+    ("pat_mint_choc", "Mint chocolate", "bands", [(80, 255, 170), (90, 40, 10)]),
+    ("pat_lemon_lime", "Lemon and lime", "bands", [(255, 230, 0), (120, 255, 0)]),
+    ("pat_royal", "Royal", "bands", [(110, 0, 200), (255, 180, 0)]),
+    ("pat_neon_stripes", "Neon stripes", "bands", [(255, 0, 150), (0, 255, 80), (0, 120, 255), (255, 240, 0)]),
+    ("pat_ocean_waves", "Ocean waves", "soft", [(0, 20, 120), (0, 120, 255), (0, 230, 220), (0, 120, 255)]),
+    ("pat_peach", "Peach", "soft", [(255, 120, 90), (255, 190, 130), (255, 90, 140)]),
+    ("pat_lavender", "Lavender fields", "soft", [(150, 90, 255), (210, 160, 255), (90, 40, 200)]),
+    ("pat_sherbet", "Sherbet", "soft", [(255, 140, 60), (255, 90, 160), (255, 230, 90), (120, 230, 120)]),
+    ("pat_deep_space", "Deep space", "soft", [(10, 0, 60), (90, 0, 160), (0, 60, 200), (200, 0, 140)]),
+    ("pat_aurora_bands", "Aurora bands", "soft", [(0, 255, 140), (0, 160, 255), (160, 0, 255), (0, 255, 200)]),
+    ("pat_fairy", "Fairy lights", "dots", [(255, 170, 70), (255, 200, 120)]),
+    ("pat_retro_bulbs", "Retro bulbs", "dots",
+     [(255, 0, 0), (0, 200, 40), (0, 60, 255), (255, 190, 0), (255, 90, 0)]),
+    ("pat_pastel_dots", "Pastel dots", "dots", [(255, 160, 210), (160, 220, 255), (200, 255, 170), (255, 240, 160)]),
+    ("pat_ice_crystals", "Ice crystals", "dots", [(255, 255, 255), (120, 200, 255), (40, 120, 255)]),
+    ("pat_party_dots", "Party dots", "dots", [(255, 0, 200), (0, 255, 255), (255, 255, 0), (120, 0, 255)]),
+    ("pat_spectrum_blocks", "Spectrum blocks", "blocks",
+     [(255, 0, 0), (255, 120, 0), (255, 230, 0), (0, 220, 0), (0, 220, 220), (0, 80, 255), (170, 0, 255)]),
+    ("pat_flag_blocks", "Sunrise blocks", "blocks", [(120, 0, 60), (255, 40, 40), (255, 140, 0), (255, 220, 120)]),
+    ("pat_glow_centre", "Centre glow", "mirror", [(255, 220, 150), (255, 100, 0), (120, 0, 80)]),
+    ("pat_twin_tone", "Twin tone", "mirror", [(0, 200, 255), (255, 0, 120)]),
+]
+
 _SEASONAL = [
     ("valentine", "Valentine", _twinkle_in([(255, 0, 60), (255, 100, 160), (200, 0, 40)], (30, 0, 8))),
     ("easter", "Easter", _twinkle_in([(255, 180, 220), (180, 220, 255), (255, 240, 150), (190, 255, 190)], (20, 20, 20))),
@@ -993,6 +1062,8 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in [
     *[Effect(eid, label, fn, "Slow and smooth", cols, prev, size) for eid, label, fn, prev, cols, size in _SLOW],
     *[Effect(eid, label, fn, "Animated", 0, prev, size) for eid, label, fn, prev, size in _ANIMATED],
     *[Effect(eid, label, _drift(cols), "Moods", 0, tuple(cols)) for eid, label, cols in _MOODS],
+    *[Effect(eid, label, _pattern(cols, style), "Patterns", 0, tuple(cols), True)
+      for eid, label, style, cols in _PATTERNS],
     *[Effect(eid, label, fn, "Party and seasons", 0, ()) for eid, label, fn in _SEASONAL],
     # colourful
     Effect("rainbow", "Rainbow", _rainbow, "Colourful", 0, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), True),
@@ -1038,8 +1109,37 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in [
 ]}
 
 
-def render(effect_id: str, positions: np.ndarray, t: float, params: Params) -> np.ndarray:
-    effect = EFFECTS.get(effect_id) or EFFECTS["rainbow"]
+def painting_effects(config) -> list[Effect]:
+    """Your saved segment colours and animations, as effects for any light."""
+    from goveehome import paintings
+    out = []
+    for preset in (config.get("segment_presets") or []) if config is not None else []:
+        colours = preset["colours"]
+        prev = tuple(paintings.frame_array(colours)[np.linspace(0, len(colours) - 1, min(6, len(colours))).astype(int)]
+                     .astype(int).tolist())
+        out.append(Effect(f"paint:{preset['name']}", preset["name"],
+                          lambda x, t, p, c=colours: paintings.render_preset(c, x), PAINTINGS, 0,
+                          tuple(tuple(v) for v in prev)))
+    for anim in (config.get("animations") or []) if config is not None else []:
+        if not anim.get("frames"):
+            continue
+        first = anim["frames"][0]
+        prev = paintings.frame_array(first)[np.linspace(0, len(first) - 1, min(6, len(first))).astype(int)]
+        out.append(Effect(f"anim:{anim['id']}", anim["name"],
+                          lambda x, t, p, a=anim: paintings.render_animation(a, x, t, p.speed), PAINTINGS, 0,
+                          tuple(tuple(int(c) for c in v) for v in prev)))
+    return out
+
+
+def resolve(effect_id: str, config=None) -> Effect:
+    effect = EFFECTS.get(effect_id)
+    if effect is None and config is not None and ":" in str(effect_id):
+        effect = next((e for e in painting_effects(config) if e.id == effect_id), None)
+    return effect or EFFECTS["rainbow"]
+
+
+def render(effect_id, positions: np.ndarray, t: float, params: Params, config=None) -> np.ndarray:
+    effect = effect_id if isinstance(effect_id, Effect) else resolve(effect_id, config)
     x = np.asarray(positions, dtype=np.float32)
     if params.reverse:
         x = 1.0 - x
@@ -1086,7 +1186,7 @@ class EffectSource(Source):
     def open(self) -> None:
         self._start = time.monotonic()
         self._current = None
-        self.label = EFFECTS.get(self.effect or self.section.get("effect"), EFFECTS["rainbow"]).label
+        self.label = resolve(self.effect or self.section.get("effect"), self.config).label
 
     def fps(self) -> int:
         return int(self.section.get("fps", 30))
@@ -1096,13 +1196,14 @@ class EffectSource(Source):
         if effect_id != getattr(self, "_current", None):
             self._current = effect_id
             self._start = now        # every effect starts from its beginning (sunrise!)
-        self.label = EFFECTS.get(effect_id, EFFECTS["rainbow"]).label
+        effect = resolve(effect_id, self.config)
+        self.label = effect.label
         params = params_from(self.section)
         t = now - self._start
         brightness = float(self.section.get("brightness", 1.0))
-        out = {target.device.id: render(effect_id, target.positions, t, params) * brightness
+        out = {target.device.id: render(effect, target.positions, t, params) * brightness
                for target in targets}
-        strip = render(effect_id, np.linspace(0, 1, 160), t, params) * brightness
+        strip = render(effect, np.linspace(0, 1, 160), t, params) * brightness
         self._frame = np.repeat(np.clip(strip, 0, 255).astype(np.uint8)[None, :, :], 90, axis=0)
         return out
 

@@ -817,19 +817,56 @@ class EffectsPage(ShowPage):
         self.connect("hiding", self._stop_card_animation)
         self.connect("map", self._start_card_animation)
         current = section["effect"]
+        self.paint_group = Adw.PreferencesGroup(
+            title=fx.PAINTINGS,
+            description="Segment colours and animations you made on a light's page. "
+                        "They play on every light, stretched to its length.")
+        self.paint_flow = None
+        self._paint_key = None
+        self.page.add(self.paint_group)
+        self.reload_paintings()
+        self.connect("map", lambda *_: self.reload_paintings())
         for category in fx.CATEGORIES:
             group = Adw.PreferencesGroup(title=category)
             flow = _card_flow()
             for effect in (e for e in fx.EFFECTS.values() if e.category == category):
-                card = GradientCard(effect.label, lambda e=effect: self._card_frame(e))
-                card.effect = effect
-                card.set_active(effect.id == current)
-                card.connect("clicked", self._pick)
-                self.cards.append(card)
-                flow.append(card)
+                flow.append(self._make_card(effect, current))
             group.add(flow)
             self.page.add(group)
         self._update_option_rows()
+
+    def _make_card(self, effect, current):
+        card = GradientCard(effect.label, lambda e=effect: self._card_frame(e))
+        card.effect = effect
+        card.set_active(effect.id == current)
+        card.connect("clicked", self._pick)
+        self.cards.append(card)
+        return card
+
+    def reload_paintings(self):
+        """Rebuild the cards for your paintings when they changed."""
+        import json as _json
+        key = _json.dumps([self.config.get("segment_presets"), self.config.get("animations")], sort_keys=True)
+        if key == self._paint_key:
+            return
+        self._paint_key = key
+        if self.paint_flow is not None:
+            for card in [c for c in self.cards if c.effect.category == fx.PAINTINGS]:
+                self.cards.remove(card)
+            self.paint_group.remove(self.paint_flow)
+        effects = fx.painting_effects(self.config)
+        if effects:
+            self.paint_flow = _card_flow()
+            current = self.config.section("effects")["effect"]
+            for effect in effects:
+                self.paint_flow.append(self._make_card(effect, current))
+        else:
+            self.paint_flow = Gtk.Label(
+                label="Nothing here yet. Open a light with segments, paint them, and save the colours "
+                      "as a preset or make an animation.",
+                wrap=True, xalign=0)
+            self.paint_flow.add_css_class("dim-label")
+        self.paint_group.add(self.paint_flow)
 
     # animated previews: every card plays its effect while the page is visible
     def _card_frame(self, effect):
@@ -837,7 +874,7 @@ class EffectsPage(ShowPage):
         params = self.params()
         params.reverse = False
         t = _time.monotonic() - self._t0
-        cols = fx.render(effect.id, np.linspace(0, 1, 24), t, params)
+        cols = fx.render(effect, np.linspace(0, 1, 24), t, params)
         return [tuple(int(v) for v in c) for c in cols]
 
     def _start_card_animation(self, *_):
@@ -864,7 +901,7 @@ class EffectsPage(ShowPage):
             card.swatch.queue_draw()
 
     def _update_option_rows(self):
-        effect = fx.EFFECTS.get(self.config.section("effects")["effect"], fx.EFFECTS["rainbow"])
+        effect = fx.resolve(self.config.section("effects")["effect"], self.config)
         for i, row in enumerate(self.color_rows):
             row.set_sensitive(effect.uses_colors > i)
         self.size_row.set_sensitive(effect.uses_size)

@@ -133,6 +133,35 @@ def cmd_segments(args) -> int:
     return _each(args, paint)
 
 
+def cmd_paintings(args) -> int:
+    from goveehome import paintings
+    config = Config()
+    if args.action == "list":
+        for p in config.get("segment_presets") or []:
+            print(f"preset     {p['name']}  ({len(p['colours'])} segments)")
+        for a in config.get("animations") or []:
+            print(f"animation  {a['name']}  ({len(a['frames'])} frames, id {a['id']})")
+        return 0
+    if not args.file:
+        raise SystemExit(f"'paintings {args.action}' needs a file name")
+    if args.action == "export":
+        text = paintings.export_json(config)
+        if args.file == "-":
+            print(text)
+        else:
+            with open(args.file, "w") as fh:
+                fh.write(text)
+            print(f"Saved to {args.file}")
+        return 0
+    try:
+        with open(args.file) as fh:
+            added = paintings.import_data(config, fh.read())
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Can't import {args.file}: {exc}")
+    print(f"Imported {added[0]} presets and {added[1]} animations")
+    return 0
+
+
 def cmd_temp(args) -> int:
     return _each(args, lambda m, d: m.set_kelvin(d, args.kelvin))
 
@@ -209,15 +238,24 @@ def cmd_music(args) -> int:
 def cmd_effect(args) -> int:
     from goveehome.sync import effects
 
+    mine = effects.painting_effects(Config())
     if args.name == "list":
         for category in effects.CATEGORIES:
             print(f"{category}:")
             for e in effects.EFFECTS.values():
                 if e.category == category:
-                    print(f"  {e.id:<14} {e.label}")
+                    print(f"  {e.id:<20} {e.label}")
+        if mine:
+            print(f"{effects.PAINTINGS}:")
+            for e in mine:
+                print(f"  {e.id:<20} {e.label}")
         return 0
     if args.name not in effects.EFFECTS:
-        raise SystemExit(f"Unknown effect {args.name!r}. Run 'goveehome-cli effect list'.")
+        # your paintings also by their name
+        match = next((e for e in mine if args.name in (e.id, e.label)), None)
+        if match is None:
+            raise SystemExit(f"Unknown effect {args.name!r}. Run 'goveehome-cli effect list'.")
+        args.name = match.id
 
     def prepare(config):
         section = config.section("effects")
@@ -452,6 +490,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "e.g. --fill gradient red blue")
     s.add_argument("--via", choices=["auto", "lan", "ble", "cloud"], default="auto")
     s.set_defaults(func=cmd_segments)
+
+    s = sub.add_parser("paintings", help="list, export or import your segment presets and animations")
+    s.add_argument("action", choices=["list", "export", "import"])
+    s.add_argument("file", nargs="?", help="JSON file ('-' prints the export)")
+    s.set_defaults(func=cmd_paintings)
 
     s = sub.add_parser("sync", help="mirror the screen colours to lights until stopped")
     s.add_argument("targets", nargs="*", help="lights to use (default: all with sync enabled in the app)")

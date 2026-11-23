@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from gi.repository import Adw, Gdk, GLib, Gtk
 
+from goveehome import paintings
 from goveehome import segments as seg
 from goveehome.colors import to_hex
-from goveehome.ui.widgets import ColorPanel, Debouncer, SliderRow, rgb_from_rgba, rgba_from_rgb
+from goveehome.ui.widgets import ColorPanel, ColorStrip, Debouncer, SliderRow, rgb_from_rgba, rgba_from_rgb
 
 ROUTES = {"auto": "Automatic", "lan": "Network (LAN)", "ble": "Bluetooth", "cloud": "Govee cloud"}
 CELL = 34
@@ -281,6 +284,17 @@ class SegmentEditor:
         rb.connect("clicked", lambda *_: self._send(list(self.strip.colours)))
         resend.add_suffix(rb)
         tools.add(resend)
+
+        files = Adw.ActionRow(title="Your presets and animations",
+                              subtitle="Save them to a file to keep or share them, or load a file")
+        for label, handler in (("Import…", self._import), ("Export…", self._export)):
+            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            b.add_css_class("flat")
+            b.connect("clicked", handler)
+            files.add_suffix(b)
+        tools.add(files)
+
+        self._build_animation()
         self._selection_changed()
 
     # helpers -----------------------------------------------------------------------------
@@ -308,7 +322,10 @@ class SegmentEditor:
 
     def _send(self, colours: list) -> None:
         if self.device.id in self.manager.streaming_devices:
-            self.page.window.toast("A light show is using this light. It was stopped for the segment colours.")
+            for engine in self.app.engines.values():
+                if engine.running:
+                    engine.stop(wait=True)
+            self.page.window.toast("The light show was stopped for the segment colours")
         self.manager.paint_segments(self.device, colours, via=self._via())
 
     def _paint(self, rgb):
@@ -320,6 +337,7 @@ class SegmentEditor:
         self.strip.queue_draw()
         self._send(changes)
         self._selection_changed()
+        self._frame_edited()
 
     def _send_brightness(self, percent: int):
         targets = self._targets()
@@ -340,6 +358,7 @@ class SegmentEditor:
                 self.strip.colours[i] = c
         self.strip.queue_draw()
         self._send(filled)
+        self._frame_edited()
 
     # presets -------------------------------------------------------------------------------
     def _saved(self) -> list[dict]:
@@ -370,6 +389,7 @@ class SegmentEditor:
         self.strip.queue_draw()
         self._send(colours)
         self._selection_changed()
+        self._frame_edited()
 
     def _save_preset(self, row):
         name = row.get_text().strip()
@@ -392,3 +412,364 @@ class SegmentEditor:
         name = self._presets[idx][0]
         self.app.config.set("segment_presets", [p for p in self._saved() if p["name"] != name])
         self._load_presets()
+
+    # import / export ---------------------------------------------------------------------
+    def _file_dialog(self, title: str):
+        from gi.repository import Gio
+        dialog = Gtk.FileDialog(title=title, modal=True)
+        json_filter = Gtk.FileFilter(name="GoveeHome paintings (JSON)")
+        json_filter.add_pattern("*.json")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(json_filter)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(json_filter)
+        return dialog
+
+    def _export(self, *_):
+        if not (self.app.config.get("segment_presets") or self.app.config.get("animations")):
+            self.page.window.toast("Save a preset or make an animation first")
+            return
+        dialog = self._file_dialog("Export presets and animations")
+        dialog.set_initial_name("goveehome-paintings.json")
+
+        def done(d, result):
+            try:
+                gfile = d.save_finish(result)
+            except GLib.Error:
+                return      # cancelled
+            try:
+                with open(gfile.get_path(), "w") as fh:
+                    fh.write(paintings.export_json(self.app.config))
+            except OSError as exc:
+                self.page.window.toast(f"Couldn't save: {exc.strerror or exc}")
+                return
+            self.page.window.toast(f"Saved to {gfile.get_basename()}")
+        dialog.save(self.page.window, None, done)
+
+    def _import(self, *_):
+        dialog = self._file_dialog("Import presets and animations")
+
+        def done(d, result):
+            try:
+                gfile = d.open_finish(result)
+            except GLib.Error:
+                return
+            try:
+                with open(gfile.get_path()) as fh:
+                    presets, anims = paintings.import_data(self.app.config, fh.read())
+            except (OSError, ValueError) as exc:
+                self.page.window.toast(f"Couldn't import {gfile.get_basename()}: {exc}")
+                return
+            self._load_presets()
+            self._load_animations()
+            parts = []
+            if presets:
+                parts.append(f"{presets} preset" + ("s" if presets != 1 else ""))
+            if anims:
+                parts.append(f"{anims} animation" + ("s" if anims != 1 else ""))
+            self.page.window.toast("Imported " + " and ".join(parts))
+        dialog.open(self.page.window, None, done)
+
+    # animation -----------------------------------------------------------------------------
+    def _build_animation(self):
+        group = Adw.PreferencesGroup(
+            title="Animation",
+            description="An animation is a row of frames, each with its own segment colours. "
+                        "Select a frame to show it on the light and change it with the colours above. "
+                        "It plays as a light show, also on other lights (Effects → Your paintings).")
+        self.groups.append(group)
+        self.anim: dict | None = None
+        self.frame: int | None = None
+        self._updating_anim = False
+
+        self.anim_row = Adw.ComboRow(title="Animation")
+        new = Gtk.Button(icon_name="list-add-symbolic", valign=Gtk.Align.CENTER, tooltip_text="New animation")
+        new.add_css_class("flat")
+        new.connect("clicked", self._new_animation)
+        self.anim_delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                      tooltip_text="Delete this animation")
+        self.anim_delete.add_css_class("flat")
+        self.anim_delete.connect("clicked", self._delete_animation)
+        self.anim_row.add_suffix(self.anim_delete)
+        self.anim_row.add_suffix(new)
+        self.anim_row.connect("notify::selected", lambda *_: self._animation_chosen())
+        group.add(self.anim_row)
+
+        self.anim_name = Adw.EntryRow(title="Name", show_apply_button=True)
+        self.anim_name.connect("apply", self._rename)
+        group.add(self.anim_name)
+
+        frames_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                             margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+        self.frames_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                                       max_children_per_line=10, min_children_per_line=3,
+                                       column_spacing=4, row_spacing=4)
+        frames_box.append(self.frames_flow)
+        self.frame_hint = Gtk.Label(xalign=0, wrap=True)
+        self.frame_hint.add_css_class("dim-label")
+        self.frame_hint.add_css_class("caption")
+        frames_box.append(self.frame_hint)
+        bar = Gtk.Box(spacing=4)
+        self.frame_buttons = {}
+        for key, label, tip in (
+                ("add", "Add frame", "A new frame with the colours on the light now, after the selected one"),
+                ("left", "◀", "Move the selected frame earlier"),
+                ("right", "▶", "Move the selected frame later"),
+                ("delete", "Delete frame", "Delete the selected frame"),
+                ("run", "Make it run along", "Frames that move the colours on the light one segment at a "
+                                             "time until they're back at the start")):
+            b = Gtk.Button(label=label, tooltip_text=tip)
+            b.add_css_class("flat")
+            b.connect("clicked", lambda _b, k=key: self._frame_action(k))
+            self.frame_buttons[key] = b
+            bar.append(b)
+        frames_box.append(bar)
+        frames_row = Adw.PreferencesRow(activatable=False, title="Frames")
+        frames_row.set_child(frames_box)
+        group.add(frames_row)
+
+        self.frame_time = SliderRow("Time per frame", 0.05, 5.0, 0.05, lambda v: f"{v:.2f} s")
+        self.frame_time.scale.connect("value-changed", lambda s: self._set_anim(frame_time=round(s.get_value(), 2)))
+        group.add(self.frame_time)
+        self.fade_row = Adw.SwitchRow(title="Fade between frames", subtitle="Off: jump from frame to frame")
+        self.fade_row.connect("notify::active", lambda r, _p: self._set_anim(fade=r.get_active()))
+        group.add(self.fade_row)
+        self.mode_ids = list(paintings.MODES)
+        self.mode_row = Adw.ComboRow(title="Play")
+        self.mode_row.set_model(Gtk.StringList.new(list(paintings.MODES.values())))
+        self.mode_row.connect("notify::selected",
+                              lambda r, _p: self._set_anim(mode=self.mode_ids[r.get_selected()]))
+        group.add(self.mode_row)
+
+        play = Adw.ActionRow(title="Play on this light",
+                             subtitle="Needs segment streaming for a colour per segment (light page → Light shows)")
+        self.play_btn = Gtk.Button(label="Play", valign=Gtk.Align.CENTER)
+        self.play_btn.add_css_class("suggested-action")
+        self.play_btn.connect("clicked", self._play)
+        play.add_suffix(self.play_btn)
+        group.add(play)
+        self.anim_detail_rows = [self.anim_name, frames_row, self.frame_time, self.fade_row, self.mode_row, play]
+        self._load_animations()
+        GLib.timeout_add_seconds(1, self._update_play)
+
+    def _animations(self) -> list[dict]:
+        return list(self.app.config.get("animations") or [])
+
+    def _load_animations(self, select: str | None = None):
+        anims = self._animations()
+        select = select or (self.anim["id"] if self.anim else None)
+        self._anim_ids = [a["id"] for a in anims]
+        self._updating_anim = True
+        self.anim_row.set_model(Gtk.StringList.new([a["name"] for a in anims] or ["None yet, press +"]))
+        self.anim_row.set_sensitive(bool(anims))
+        if select in self._anim_ids:
+            self.anim_row.set_selected(self._anim_ids.index(select))
+        self._updating_anim = False
+        self._animation_chosen()
+
+    def _animation_chosen(self):
+        if self._updating_anim:
+            return
+        idx = self.anim_row.get_selected()
+        anims = self._animations()
+        self.anim = dict(anims[idx]) if anims and 0 <= idx < len(anims) else None
+        self.frame = None
+        self.anim_delete.set_visible(self.anim is not None)
+        for row in self.anim_detail_rows:
+            row.set_visible(self.anim is not None)
+        if self.anim is None:
+            return
+        self._updating_anim = True
+        self.anim_name.set_text(self.anim["name"])
+        self.frame_time.set_value(float(self.anim.get("frame_time", 0.5)))
+        self.fade_row.set_active(bool(self.anim.get("fade", True)))
+        self.mode_row.set_selected(self.mode_ids.index(self.anim.get("mode", "loop")))
+        self._updating_anim = False
+        self._show_frames()
+
+    def _save_anim(self):
+        if self.anim is None:
+            return
+        anims = [a if a["id"] != self.anim["id"] else dict(self.anim) for a in self._animations()]
+        self.app.config.set("animations", anims)
+
+    def _set_anim(self, **changes):
+        if self.anim is None or self._updating_anim:
+            return
+        self.anim.update(changes)
+        self._save_anim()
+
+    def _new_animation(self, *_):
+        anims = self._animations()
+        name = paintings.unique_name("My animation", [a["name"] for a in anims])
+        first = [to_hex(c) if c else None for c in self.strip.colours]
+        anim = paintings.new_animation(name, [first])
+        anims.append(anim)
+        self.app.config.set("animations", anims)
+        self._load_animations(select=anim["id"])
+        self._select_frame(0)
+        self.page.window.toast(f"“{name}” has one frame with the colours on the light. Add more frames.")
+
+    def _delete_animation(self, *_):
+        if self.anim is None:
+            return
+        self._stop_if_playing()
+        self.app.config.set("animations", [a for a in self._animations() if a["id"] != self.anim["id"]])
+        self.anim = None
+        self._load_animations()
+
+    def _rename(self, row):
+        name = row.get_text().strip()
+        if not name or self.anim is None:
+            return
+        others = [a["name"] for a in self._animations() if a["id"] != self.anim["id"]]
+        self.anim["name"] = paintings.unique_name(name, others)
+        self._save_anim()
+        self._load_animations(select=self.anim["id"])
+
+    # frames --------------------------------------------------------------------------------
+    def _show_frames(self):
+        child = self.frames_flow.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.frames_flow.remove(child)
+            child = nxt
+        self._frame_widgets = []
+        for i, frame in enumerate(self.anim["frames"] if self.anim else []):
+            button = Gtk.ToggleButton(active=i == self.frame, tooltip_text=f"Frame {i + 1}")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            strip = ColorStrip(64, 12)
+            strip.set_colors([c for c in paintings.frame_array(frame).astype(int).tolist()])
+            box.append(strip)
+            box.append(Gtk.Label(label=str(i + 1)))
+            button.set_child(box)
+            button.connect("toggled", lambda b, k=i: self._frame_toggled(b, k))
+            self.frames_flow.append(button)
+            self._frame_widgets.append((button, strip))
+        self._update_frame_hint()
+
+    def _update_frame_hint(self):
+        count = len(self.anim["frames"]) if self.anim else 0
+        if self.frame is None:
+            self.frame_hint.set_label(f"{count} frames. Select a frame to show and change it.")
+        else:
+            self.frame_hint.set_label(f"Frame {self.frame + 1} of {count}: what you paint above goes into "
+                                      "this frame. Click it again when you're done.")
+        for key in ("left", "right", "delete"):
+            self.frame_buttons[key].set_sensitive(self.frame is not None and count > 1)
+
+    def _frame_toggled(self, button, index):
+        if self._updating_anim:
+            return
+        if button.get_active():
+            self._select_frame(index)
+        elif self.frame == index:
+            self.frame = None
+            self._update_frame_hint()
+
+    def _select_frame(self, index: int):
+        self.frame = index
+        self._updating_anim = True
+        for i, (b, _s) in enumerate(getattr(self, "_frame_widgets", [])):
+            b.set_active(i == index)
+        self._updating_anim = False
+        if self.anim and 0 <= index < len(self.anim["frames"]):
+            frame = paintings.frame_array(self.anim["frames"][index])
+            xs = (np.arange(self.strip.count) + 0.5) / self.strip.count
+            colours = [tuple(int(v) for v in c) for c in paintings.sample(frame, xs)]
+            self.strip.colours = colours
+            self.strip.queue_draw()
+            self._selection_changed()
+            self._stop_if_playing()
+            self._send(list(colours))
+        self._update_frame_hint()
+
+    def _frame_edited(self):
+        """Painting goes into the selected frame."""
+        if self.anim is None or self.frame is None or not 0 <= self.frame < len(self.anim["frames"]):
+            return
+        self.anim["frames"][self.frame] = [to_hex(c) if c else None for c in self.strip.colours]
+        self._save_anim()
+        if self.frame < len(self._frame_widgets):
+            self._frame_widgets[self.frame][1].set_colors(
+                [c if c else (0, 0, 0) for c in self.strip.colours])
+
+    def _frame_action(self, key: str):
+        if self.anim is None:
+            return
+        frames = self.anim["frames"]
+        current = [to_hex(c) if c else None for c in self.strip.colours]
+        i = self.frame
+        if key == "add":
+            if len(frames) >= paintings.MAX_FRAMES:
+                self.page.window.toast(f"An animation can have up to {paintings.MAX_FRAMES} frames")
+                return
+            at = (i + 1) if i is not None else len(frames)
+            frames.insert(at, current)
+            self._save_anim()
+            self.frame = at
+            self._show_frames()
+            self._select_frame(at)
+            return
+        if key == "run":
+            made = paintings.shifted_frames(current)
+            if len(made) < 2:
+                return
+            self.anim["frames"] = made[:paintings.MAX_FRAMES]
+            self.anim["fade"] = True
+            self._save_anim()
+            self._animation_chosen()
+            self.page.window.toast(f"{len(made)} frames: the colours move one segment per frame")
+            return
+        if i is None:
+            return
+        if key == "delete" and len(frames) > 1:
+            del frames[i]
+            self.frame = min(i, len(frames) - 1)
+        elif key == "left" and i > 0:
+            frames[i - 1], frames[i] = frames[i], frames[i - 1]
+            self.frame = i - 1
+        elif key == "right" and i < len(frames) - 1:
+            frames[i + 1], frames[i] = frames[i], frames[i + 1]
+            self.frame = i + 1
+        else:
+            return
+        self._save_anim()
+        self._show_frames()
+        self._select_frame(self.frame)
+
+    # playing ------------------------------------------------------------------------------
+    def _playing(self) -> bool:
+        engine = self.app.engines["effects"]
+        return bool(self.anim) and engine.running and \
+            self.app.config.section("effects").get("effect") == f"anim:{self.anim['id']}"
+
+    def _update_play(self):
+        if not self.play_btn.get_root():
+            return GLib.SOURCE_CONTINUE
+        playing = self._playing()
+        self.play_btn.set_label("Stop" if playing else "Play")
+        self.play_btn.remove_css_class("suggested-action" if playing else "destructive-action")
+        self.play_btn.add_css_class("destructive-action" if playing else "suggested-action")
+        return GLib.SOURCE_CONTINUE
+
+    def _stop_if_playing(self):
+        if self._playing():
+            self.app.engines["effects"].stop(wait=True)
+            self._update_play()
+
+    def _play(self, *_):
+        if self.anim is None:
+            return
+        if self._playing():
+            self.app.engines["effects"].stop(wait=False)
+        else:
+            self.frame = None
+            for b, _s in getattr(self, "_frame_widgets", []):
+                self._updating_anim = True
+                b.set_active(False)
+                self._updating_anim = False
+            self._update_frame_hint()
+            self.app.config.set_in("effects", "effect", f"anim:{self.anim['id']}")
+            self.app.start_show("effects", [self.device.id])
+        GLib.timeout_add(400, lambda: (self._update_play(), False)[1])

@@ -69,6 +69,7 @@ DEFAULTS: dict = {
     "groups": [],                 # [{"id": ..., "name": ..., "members": [device ids]}]
     "favorite_colors": [],        # ["#rrggbb", ...]
     "segment_presets": [],        # [{"name": ..., "colours": ["#rrggbb", ...]}]
+    "animations": [],             # see goveehome.paintings
     "schedules": [],              # see goveehome.schedules
     "background": {
         "keep_running": True,     # keep a running light show going when the window closes

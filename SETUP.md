@@ -9,7 +9,7 @@ music. Fedora is covered first, other distributions follow further down.
 4. [First start](#4-first-start)
 5. [Set up screen sync](#5-set-up-screen-sync)
 6. [Music and effects](#6-music-and-effects)
-7. [Groups, timers, segment colours and schedules](#7-groups-timers-segment-colours-and-schedules)
+7. [Groups, timers, segment colours, animations and schedules](#7-groups-timers-segment-colours-animations-and-schedules)
 8. [Running in the background](#8-running-in-the-background)
 9. [Optional: cloud API key](#9-optional-cloud-api-key)
 10. [Optional: Bluetooth](#10-optional-bluetooth)
@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.6-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.7-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -280,7 +280,8 @@ jumps to a new colour on every beat. **Sensitivity** decides what the lights rea
 means only strong peaks and clear beats, high means quiet details move the lights too and
 beats are picked up more easily. *Brightness* is a separate slider.
 
-**Effects** (sidebar, Ctrl+3) are 117 effects rendered on the PC, in seven groups. Every
+**Effects** (sidebar, Ctrl+3) are 143 effects rendered on the PC, in eight groups, plus
+your own paintings. Every
 card plays a live preview of its effect while the page is open.
 
 - *Slow and smooth*: nothing jumps, colours change gradually and moving lights glide from
@@ -297,6 +298,15 @@ card plays a live preview of its effect while the page is open.
   inferno, mint and lime, cyber, deep sea), breathing colours, meteor shower, colour rain,
   pacifica, rainbow bounce, breathing rainbow, hyperspace, plasma ball, electric, stained
   glass, disco ball, heat wave, fireflies
+- *Your paintings*: the segment colours you saved as presets and the animations you made on
+  a light's page (section 7). They play on any light, stretched to its length
+- *Patterns*: colour patterns that stay still or drift slowly. *Size* sets the width of the
+  bands and dots, *Speed* how fast they drift. Bands: rainbow bands, candy cane, bumblebee,
+  fire and ice, retro, vaporwave, tiger, mint chocolate, lemon and lime, royal, neon
+  stripes. Soft waves: ocean waves, peach, lavender fields, sherbet, deep space, aurora
+  bands. Dots like a string of bulbs: fairy lights, retro bulbs, pastel dots, ice crystals,
+  party dots. Blocks: spectrum blocks, sunrise blocks. Mirrored from the middle: centre
+  glow, twin tone
 - *Moods*: slowly flowing colour worlds: peacock, unicorn, watermelon, cherry blossom,
   lagoon, toxic, synthwave, rose gold, autumn, northern lights, morning glow, twilight,
   jungle, glacier, berry, citrus
@@ -317,7 +327,7 @@ that use your colours.
 Only one light show runs at a time. Starting another one stops the current one; Ctrl+.
 stops all of them.
 
-## 7. Groups, timers, segment colours and schedules
+## 7. Groups, timers, segment colours, animations and schedules
 
 - **Groups**: *New group…* in the sidebar (or Ctrl+G). A group has the same controls as a
   single light and sends them to every light in it. *All lights* is always there.
@@ -341,6 +351,24 @@ stops all of them.
 
   The light keeps the colours, the app doesn't have to stay open. A running light show on
   that light is stopped first.
+- **Animations**: in the *Animation* group on the same page press **+**. The new animation
+  starts with one frame holding the colours that are on the light now.
+  - Click a frame to select it: the light shows it, and whatever you paint above (colours,
+    fills, presets) goes into that frame. Click it again when you're done.
+  - *Add frame* adds a copy of the current colours after the selected frame; ◀ ▶ move it,
+    *Delete frame* removes it.
+  - *Make it run along* turns the colours on the light into frames that move them one
+    segment at a time around the strip, a quick way to make a chase.
+  - *Time per frame*, *Fade between frames* (off jumps) and *Play* (loop, or back and forth).
+  - **Play** shows it on this light (it needs *Segment streaming*); it also shows up under
+    Effects → *Your paintings*, so it can play on several lights at once.
+
+  Everything is saved as you go. Rename an animation in the *Name* row.
+- **Import and export**: *More for segments* → *Your presets and animations* →
+  **Export…** saves all your presets and animations into one JSON file; **Import…** adds
+  the ones from a file (also from someone else). Nothing is overwritten: if a name is taken
+  the imported one gets a number. From the terminal: `goveehome-cli paintings export file.json`
+  and `goveehome-cli paintings import file.json`.
 - **Schedules**: *Schedules* in the sidebar. Press **+** (or a *Quick start* entry), choose
   the time, the days, the lights (all, a group or one light) and what should happen: on,
   off, a colour, a brightness, segment colours from a preset, a light show, a **sunrise**

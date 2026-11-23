@@ -17,6 +17,10 @@ screen and your music, like DreamView and music mode in the Govee PC app.
   colouring in the Govee app. Click or drag over segments, pick a colour; gradients, rainbow,
   alternating fills, brightness per segment, built-in and saved presets. Works over the LAN
   (no account needed), Bluetooth or the cloud, and the light keeps the colours by itself
+- **Animations**: paint frame after frame, set the time per frame, fading and loop or back
+  and forth, or let *Make it run along* move your colours around the strip. Animations and
+  saved colours play on any light from the Effects page
+- **Import and export** your presets and animations as a JSON file to keep or share them
 - **Schedules**: turn lights on or off, set a colour, the brightness or segment colours, start
   a light show, or wake up with a sunrise and fall asleep with a sunset, on chosen days
 
@@ -63,7 +67,7 @@ rolling), 25 colour palettes including your own colours, a *Feel* setting (flowi
 glide with the music; jumpy: flashes and colour jumps on every beat) and a *Sensitivity*
 that decides how much of the music the lights react to.
 
-**Effects**: 117 effects rendered on the PC, no cloud needed, with live animated previews on
+**Effects**: 143 effects rendered on the PC, no cloud needed, with live animated previews on
 the effects page:
 - *Slow and smooth* (15): nothing jumps; colours change gradually and moving lights glide
   LED by LED. Travelling light, two travellers, colour journey, slow comet, Christmas
@@ -71,6 +75,11 @@ the effects page:
   blues with strikes at irregular moments), ember glow, calm ocean, starlight and more
 - *Animated* (42): moving, multi-coloured animations like juggle, bouncing balls, ripple,
   confetti, meteor shower, colour rain, pacifica, fireflies, hyperspace and plasma ball
+- *Patterns* (26): colour patterns that sit still or drift slowly: bands (candy cane,
+  bumblebee, fire and ice, retro, vaporwave…), soft waves, dots like a string of bulbs
+  (fairy lights, retro bulbs, ice crystals…), blocks and patterns mirrored from the middle.
+  *Size* sets how wide the bands are, *Speed* how fast they drift
+- *Your paintings*: the segment colours and animations you made yourself (see below)
 - *Moods* (16): slowly flowing colour worlds like peacock, unicorn, synthwave and glacier
 - *Colourful*, *Your colours*, *Nature* and *Party and seasons*
 - Speed, brightness, size, direction and up to three of your own colours
@@ -166,6 +175,8 @@ goveehome-cli temp 192.168.1.42 3000
 goveehome-cli segments "Neon rope" 1-5=red 6-10=#0080ff all=white   # later ones win
 goveehome-cli segments "Neon rope" --fill gradient red blue
 goveehome-cli segments "Neon rope" --preset Sunset
+goveehome-cli paintings export my-paintings.json   # or: import, list
+goveehome-cli effect "My animation"                # play one of your animations
 goveehome-cli sync                                  # screen sync until Ctrl+C
 goveehome-cli sync "Flow Plus" "TV"                 # only these lights
 goveehome-cli music --mode mirror --palette neon
