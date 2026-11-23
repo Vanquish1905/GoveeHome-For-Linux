@@ -107,6 +107,18 @@ from gi.repository import Adw
 assert (Adw.get_major_version(), Adw.get_minor_version()) >= (1, 4), "libadwaita 1.4 or newer is needed"
 PY
 
+# your settings, lights, presets and animations are never touched by installing or
+# updating; keep a copy anyway
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/goveehome"
+if [ -f "$CONFIG_DIR/config.json" ]; then
+    mkdir -p "$CONFIG_DIR/backups"
+    chmod 700 "$CONFIG_DIR/backups"
+    BACKUP="$CONFIG_DIR/backups/config-$(date +%Y%m%d-%H%M%S)-before-install.json"
+    cp -p "$CONFIG_DIR/config.json" "$BACKUP"
+    chmod 600 "$BACKUP"
+    say "Your settings are kept (copy in $BACKUP)"
+fi
+
 mkdir -p "$APP_DIR"
 if [ "$UPDATE" = 1 ] && [ -x "$VENV/bin/python" ]; then
     # keep the environment the running app uses, just upgrade the package
@@ -142,6 +154,33 @@ install -m644 "$SRC/data/$APP_ID.metainfo.xml" "$PREFIX/share/metainfo/"
 install -m644 "$SRC/data/icons/$APP_ID.svg" "$PREFIX/share/icons/hicolor/scalable/apps/"
 update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
 gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+
+# "Start with the computer": put the login entry back if it was switched on
+if [ -f "$CONFIG_DIR/config.json" ] && python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json, sys
+try:
+    sys.exit(0 if json.load(open(sys.argv[1])).get("background", {}).get("autostart") else 1)
+except Exception:
+    sys.exit(1)
+PY
+then
+    AUTOSTART_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cat > "$AUTOSTART_DIR/$APP_ID.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=GoveeHome
+Comment=Govee lights, started with the computer
+Exec=$PREFIX/bin/goveehome --background
+Icon=$APP_ID
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3
+X-KDE-autostart-after=panel
+DESKTOP
+    say "GoveeHome starts with the computer (switch it off in Preferences)"
+fi
 
 check_firewall
 

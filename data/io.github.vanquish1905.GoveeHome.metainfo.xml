@@ -37,6 +37,13 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="1.8.8" date="2026-11-23">
+      <description>
+        <p>Start with the computer from the main menu. Settings, presets and animations are
+        backed up before every update and can be restored from Preferences; a damaged
+        settings file no longer resets anything.</p>
+      </description>
+    </release>
     <release version="1.8.7" date="2026-11-23">
       <description>
         <p>26 colour patterns for the effects page. Animations made from painted frames,

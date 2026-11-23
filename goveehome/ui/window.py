@@ -185,6 +185,7 @@ class MainWindow(Adw.ApplicationWindow):
         section = Gio.Menu()
         section.append("New Group…", "app.new-group")
         section.append("Add Light by Address…", "app.add-host")
+        section.append("Start with the Computer", "app.autostart")
         section.append("Preferences", "app.preferences")
         menu.append_section(None, section)
         section = Gio.Menu()

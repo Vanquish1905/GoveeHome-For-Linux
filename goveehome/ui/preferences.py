@@ -18,8 +18,9 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.manager = self.app.manager
 
         page = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
-        page.add(self._updates_group())
         page.add(self._background_group())
+        page.add(self._updates_group())
+        page.add(self._backup_group())
         page.add(self._power_group())
         page.add(self._cloud_group())
         page.add(self._lan_group())
@@ -57,13 +58,99 @@ class PreferencesWindow(Adw.PreferencesWindow):
         return group
 
     def _background_group(self):
-        group = Adw.PreferencesGroup(title="Running in the background")
+        group = Adw.PreferencesGroup(title="Startup and background")
+        self._switch(group, "background", "autostart", "Start with the computer",
+                     "Starts without a window as soon as you're logged in (with automatic login, "
+                     "right when the PC boots). Open GoveeHome from the app menu to see it.",
+                     on_change=self.app.change_autostart)
+        self._switch(group, "background", "resume_show", "Continue the last light show on start")
         self._switch(group, "background", "keep_running", "Keep running when the window is closed",
                      "Light shows and schedules go on. Open GoveeHome again to get the window back")
-        self._switch(group, "background", "autostart", "Start at login",
-                     "Starts without a window", on_change=self.app.set_autostart)
-        self._switch(group, "background", "resume_show", "Continue the last light show on start")
         return group
+
+    def _backup_group(self):
+        group = Adw.PreferencesGroup(
+            title="Your settings",
+            description="Settings, lights, groups, presets, animations and schedules are kept in "
+                        f"{self._short(self.config.path.parent)}. Updates never delete them, and a "
+                        "copy is saved before every update and on the first start of a new version.")
+        backups = self.config.backups()
+        self.backup_row = Adw.ActionRow(title="Backups")
+        self._update_backup_row()
+        now = Gtk.Button(label="Back up now", valign=Gtk.Align.CENTER)
+        now.add_css_class("flat")
+        now.connect("clicked", self._backup_now)
+        folder = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER,
+                            tooltip_text="Open the backups folder")
+        folder.add_css_class("flat")
+        folder.connect("clicked", self._open_backups)
+        self.backup_row.add_suffix(now)
+        self.backup_row.add_suffix(folder)
+        group.add(self.backup_row)
+
+        restore = Adw.ActionRow(title="Restore a backup",
+                                subtitle="Your current settings are backed up first. GoveeHome restarts.")
+        rb = Gtk.Button(label="Restore…", valign=Gtk.Align.CENTER, sensitive=bool(backups))
+        rb.add_css_class("flat")
+        rb.connect("clicked", self._restore)
+        self.restore_button = rb
+        restore.add_suffix(rb)
+        group.add(restore)
+        return group
+
+    @staticmethod
+    def _short(path) -> str:
+        import os
+        home = os.path.expanduser("~")
+        text = str(path)
+        return "~" + text[len(home):] if text.startswith(home) else text
+
+    def _update_backup_row(self):
+        backups = self.config.backups()
+        if backups:
+            import time
+            newest = time.strftime("%d %b %Y, %H:%M", time.localtime(backups[0].stat().st_mtime))
+            self.backup_row.set_subtitle(f"{len(backups)} saved, newest from {newest}")
+        else:
+            self.backup_row.set_subtitle("None yet")
+
+    def _backup_now(self, *_):
+        self.config.save()
+        dest = self.config.backup("manual")
+        self._update_backup_row()
+        self.restore_button.set_sensitive(bool(self.config.backups()))
+        self.add_toast(Adw.Toast.new("Settings backed up" if dest else "Couldn't make a backup"))
+
+    def _open_backups(self, *_):
+        from gi.repository import Gio
+        self.config.backup_dir.mkdir(parents=True, exist_ok=True)
+        launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(self.config.backup_dir)))
+        launcher.launch(self, None, None)
+
+    def _restore(self, *_):
+        from gi.repository import Gio
+        dialog = Gtk.FileDialog(title="Restore settings", modal=True)
+        dialog.set_initial_folder(Gio.File.new_for_path(str(self.config.backup_dir)))
+        json_filter = Gtk.FileFilter(name="Settings backups (JSON)")
+        json_filter.add_pattern("*.json")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(json_filter)
+        dialog.set_filters(filters)
+
+        def done(d, result):
+            try:
+                gfile = d.open_finish(result)
+            except GLib.Error:
+                return
+            try:
+                self.config.restore(gfile.get_path())
+            except (OSError, ValueError) as exc:
+                self.add_toast(Adw.Toast.new(f"Couldn't restore: {exc}"))
+                return
+            self.app.set_autostart(bool(self.config.section("background").get("autostart")))
+            self.close()
+            self.app.restart()
+        dialog.open(self, None, done)
 
     def _power_group(self):
         group = Adw.PreferencesGroup(title="Follow the computer")

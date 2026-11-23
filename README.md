@@ -88,8 +88,10 @@ the effects page:
 group.
 
 **Around it**
-- Keeps running in the background, starts at login, turns the lights off when the PC sleeps
-  or shuts down and back on when it wakes
+- Starts with the computer if you like (one switch in the menu), keeps running in the
+  background, turns the lights off when the PC sleeps or shuts down and back on when it wakes
+- Updates never touch your settings, presets and animations; a backup is made before every
+  update and can be restored from Preferences
 - Updates itself from GitHub: the app tells you when there's a new version and installs it
 - Optional Govee API key: lights without LAN control, your own light names, scenes and DIY
   scenes, single-segment colours and the lights' own microphone music modes

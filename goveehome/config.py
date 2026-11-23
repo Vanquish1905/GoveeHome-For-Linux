@@ -6,12 +6,15 @@ import copy
 import json
 import logging
 import os
+import shutil
 import threading
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 CONFIG_VERSION = 7
+KEEP_BACKUPS = 15
 
 DEFAULTS: dict = {
     "version": CONFIG_VERSION,
@@ -88,6 +91,7 @@ DEFAULTS: dict = {
         "skipped": "",            # commit the user chose to skip
     },
     "portal_restore_token": "",
+    "app_version": "",            # the version that saved this file, a backup is made when it changes
 }
 
 DEVICE_DEFAULTS: dict = {
@@ -154,22 +158,98 @@ class Config:
         self.data: dict = copy.deepcopy(DEFAULTS)
         self.load()
 
+    @property
+    def backup_dir(self) -> Path:
+        return self.path.parent / "backups"
+
     def load(self) -> None:
+        from goveehome import __version__
         with self._lock:
-            try:
-                raw = json.loads(self.path.read_text())
-            except FileNotFoundError:
-                raw = {}
-            except (OSError, ValueError) as exc:
-                log.warning("Ignoring unreadable config %s: %s", self.path, exc)
-                raw = {}
+            raw = self._read(self.path)
+            if raw is None:
+                # never start over silently: keep the damaged file and use the newest backup
+                if self.path.exists():
+                    broken = self.path.with_name(f"config.broken-{time.strftime('%Y%m%d-%H%M%S')}.json")
+                    shutil.copy2(self.path, broken)
+                    log.warning("Settings file %s is damaged, kept it as %s", self.path, broken.name)
+                raw = self._newest_backup() or {}
+            new_version = bool(raw) and raw.get("app_version") != __version__
+            if new_version:
+                # first start of a new (or older) version: keep a copy from before
+                self.backup(f"before-{__version__}")
             self.data = _merge(DEFAULTS, _migrate(raw))
+            self.data["app_version"] = __version__
+            if new_version:
+                try:
+                    self.save()      # once per version, not on every start
+                except OSError as exc:
+                    log.warning("Couldn't save the settings: %s", exc)
+
+    @staticmethod
+    def _read(path: Path) -> dict | None:
+        """The stored settings, {} when there are none yet, None when the file is damaged."""
+        try:
+            raw = json.loads(path.read_text())
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            log.warning("Unreadable settings %s: %s", path, exc)
+            return None
+        return raw if isinstance(raw, dict) else None
+
+    def backups(self) -> list[Path]:
+        """Saved copies, newest first."""
+        try:
+            files = [p for p in self.backup_dir.glob("config-*.json") if p.is_file()]
+        except OSError:
+            return []
+        return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def _newest_backup(self) -> dict | None:
+        for path in self.backups():
+            raw = self._read(path)
+            if raw:
+                log.warning("Using the settings backup %s", path.name)
+                return raw
+        return None
+
+    def backup(self, reason: str = "manual") -> Path | None:
+        """Copy the settings file into backups/, keeping the newest KEEP_BACKUPS copies."""
+        with self._lock:
+            if not self.path.exists():
+                return None
+            try:
+                self.backup_dir.mkdir(parents=True, exist_ok=True)
+                os.chmod(self.backup_dir, 0o700)
+                safe = "".join(c if c.isalnum() or c in ".-_" else "-" for c in reason)[:40]
+                dest = self.backup_dir / f"config-{time.strftime('%Y%m%d-%H%M%S')}-{safe}.json"
+                shutil.copy2(self.path, dest)
+                os.chmod(dest, 0o600)
+                for old in self.backups()[KEEP_BACKUPS:]:
+                    old.unlink(missing_ok=True)
+                return dest
+            except OSError as exc:
+                log.warning("Couldn't back up the settings: %s", exc)
+                return None
+
+    def restore(self, path: Path) -> None:
+        """Replace the settings with a backup (the current ones are backed up first)."""
+        raw = self._read(Path(path))
+        if not raw:
+            raise ValueError("this isn't a GoveeHome settings file")
+        with self._lock:
+            self.backup("before-restore")
+            self.data = _merge(DEFAULTS, _migrate(raw))
+            self.save()
 
     def save(self) -> None:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.data, indent=2, sort_keys=True))
+            with open(tmp, "w") as fh:
+                fh.write(json.dumps(self.data, indent=2, sort_keys=True))
+                fh.flush()
+                os.fsync(fh.fileno())  # survives a power cut right after saving
             os.chmod(tmp, 0o600)  # holds the API key
             tmp.replace(self.path)
 

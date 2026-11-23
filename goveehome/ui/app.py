@@ -118,6 +118,12 @@ class Application(Adw.Application):
         self._action("about", self._about)
         self._action("check-updates", lambda *_: self.show_updates())
         self._action("show-window", lambda *_: self.do_activate())
+        autostart = Gio.SimpleAction.new_stateful(
+            "autostart", None, GLib.Variant.new_boolean(bool(self.config.section("background").get("autostart"))))
+        autostart.connect("change-state", lambda _a, value: self.change_autostart(value.get_boolean()))
+        self.add_action(autostart)
+        # keep the entry in step with the setting (repairs it after a reinstall or a move)
+        self.set_autostart(bool(self.config.section("background").get("autostart")))
         self._action("quit", lambda *_: self._quit(), ["<Primary>q"])
         self.set_accels_for_action("win.show-help-overlay", ["<Primary>question"])
         self.manager.start()
@@ -243,17 +249,43 @@ class Application(Adw.Application):
         self.quit()
 
     @staticmethod
-    def set_autostart(enabled: bool) -> None:
-        if not enabled:
-            AUTOSTART_FILE.unlink(missing_ok=True)
-            return
+    def autostart_entry() -> str:
+        """The autostart desktop file: starts the app without a window when you log in."""
+        import shlex
         import shutil
-        exe = shutil.which("goveehome") or f"{sys.executable} -m goveehome"
-        AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
-        AUTOSTART_FILE.write_text(
-            "[Desktop Entry]\nType=Application\nName=GoveeHome\n"
-            f"Exec={exe} --background\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
-            "NoDisplay=true\n")
+        exe = shutil.which("goveehome")
+        if exe:
+            exe = os.path.abspath(exe)        # ~/.local/bin/goveehome stays the same across updates
+            command = shlex.quote(exe)
+        else:
+            command = f"{shlex.quote(sys.executable)} -m goveehome"
+        return ("[Desktop Entry]\nType=Application\nName=GoveeHome\n"
+                "Comment=Govee lights, started with the computer\n"
+                f"Exec={command} --background\nIcon={APP_ID}\nTerminal=false\nNoDisplay=true\n"
+                "X-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=3\n"
+                "X-KDE-autostart-after=panel\n")
+
+    @classmethod
+    def set_autostart(cls, enabled: bool) -> None:
+        try:
+            if not enabled:
+                AUTOSTART_FILE.unlink(missing_ok=True)
+                return
+            entry = cls.autostart_entry()
+            if AUTOSTART_FILE.exists() and AUTOSTART_FILE.read_text() == entry:
+                return
+            AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
+            AUTOSTART_FILE.write_text(entry)
+        except OSError as exc:
+            logging.getLogger(__name__).warning("Couldn't change autostart: %s", exc)
+
+    def change_autostart(self, enabled: bool) -> None:
+        """From the menu or Preferences: remember it and write or remove the entry."""
+        self.config.set_in("background", "autostart", bool(enabled))
+        self.set_autostart(enabled)
+        action = self.lookup_action("autostart")
+        if action is not None and action.get_state().get_boolean() != bool(enabled):
+            action.set_state(GLib.Variant.new_boolean(bool(enabled)))
 
     # updates ------------------------------------------------------------------
     def show_updates(self, info=None):

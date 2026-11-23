@@ -193,9 +193,25 @@ def _run(cmd: list[str], log_line: Callable[[str], None], env: dict | None = Non
                           f"(exit code {proc.returncode})")
 
 
+def backup_settings(log_line: Callable[[str], None] = print) -> None:
+    from goveehome.config import Config
+    try:
+        dest = Config().backup("before-update")
+    except Exception as exc:     # a backup problem must not block the update
+        log_line(f"Couldn't back up the settings: {exc}")
+        return
+    if dest is not None:
+        log_line(f"Backed up your settings to {dest}")
+
+
 def apply(current: Installed, info: UpdateInfo, log_line: Callable[[str], None] = print,
           opener=None) -> None:
-    """Install `info` over `current`. Raises UpdateError with a readable message."""
+    """Install `info` over `current`. Raises UpdateError with a readable message.
+
+    Settings, lights, presets and animations live in ~/.config/goveehome, which an
+    update never touches; a copy is still put into its backups folder first.
+    """
+    backup_settings(log_line)
     if current.mode == "checkout":
         if _git(current.path, "status", "--porcelain", "--untracked-files=no"):
             raise UpdateError("The checkout has local changes; commit or stash them first")

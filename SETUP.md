@@ -10,7 +10,7 @@ music. Fedora is covered first, other distributions follow further down.
 5. [Set up screen sync](#5-set-up-screen-sync)
 6. [Music and effects](#6-music-and-effects)
 7. [Groups, timers, segment colours, animations and schedules](#7-groups-timers-segment-colours-animations-and-schedules)
-8. [Running in the background](#8-running-in-the-background)
+8. [Starting with the computer and running in the background](#8-starting-with-the-computer-and-running-in-the-background)
 9. [Optional: cloud API key](#9-optional-cloud-api-key)
 10. [Optional: Bluetooth](#10-optional-bluetooth)
 11. [Troubleshooting](#11-troubleshooting)
@@ -91,7 +91,7 @@ make rpm
 ```
 
 ```bash
-sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.7-1.*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/goveehome-1.8.8-1.*.noarch.rpm
 ```
 
 ## 3. Install on other distributions
@@ -374,17 +374,26 @@ stops all of them.
   off, a colour, a brightness, segment colours from a preset, a light show, a **sunrise**
   (from a deep red glow to warm white over the chosen minutes) or a **sunset** (the other
   way, then off). ▶ runs a schedule right away to try it. Schedules run while the app runs:
-  turn on *Keep running when the window is closed* and *Start at login* (section 8).
+  turn on *Keep running when the window is closed* and *Start with the computer* (section 8).
 
-## 8. Running in the background
+## 8. Starting with the computer and running in the background
 
-In **Preferences**:
+**Start with the computer**: switch it on in the main menu (☰ → *Start with the Computer*)
+or in *Preferences → Startup and background*. GoveeHome then starts without a window as
+soon as you're logged in; with automatic login (Fedora: *Settings → Users → Automatic
+Login*, KDE: *System Settings → Login Screen*) that's right when the PC boots. Open
+GoveeHome from the app menu to see the window. It works on GNOME, KDE Plasma and other
+desktops that follow the XDG autostart standard, and the entry
+(`~/.config/autostart/io.github.vanquish1905.GoveeHome.desktop`) repairs itself on every
+start and comes back after a reinstall.
 
-- **Keep light shows running when the window is closed**: closing the window while a light
-  show runs leaves it running. Open GoveeHome again from the app menu to get the window back;
-  the show stops when you stop it or quit (Ctrl+Q).
-- **Start at login**: starts GoveeHome without a window when you log in. Together with
-  **Continue the last light show on start**, the lights pick up where you left off.
+Also in **Preferences**:
+
+- **Continue the last light show on start**: together with *Start with the computer*, the
+  lights pick up where you left off.
+- **Keep running when the window is closed**: closing the window while a light show runs, or
+  while schedules are waiting, leaves the app running. Open GoveeHome again from the app
+  menu to get the window back; Ctrl+Q quits.
 - **Follow the computer**: turn the lights off when the PC goes to sleep or shuts down, and
   back on (including a running light show) when it wakes up.
 
@@ -630,8 +639,18 @@ for Updates…**, or *Preferences → Updates → Check now*.
 
 The update window lists what changed. **Update** downloads the newest version from GitHub
 and installs it over the current one, then **Restart now** opens the new version; a light
-show that was running starts again by itself. Your settings are kept. Nothing needs root,
-so there's no password prompt.
+show that was running starts again by itself. Nothing needs root, so there's no password
+prompt.
+
+**Your settings are always kept.** Settings, lights, groups, saved colours, segment presets,
+animations and schedules live in `~/.config/goveehome`, separate from the program, and no
+update, reinstall or `./uninstall.sh` deletes them (only `./uninstall.sh --purge` does).
+On top of that a copy goes into `~/.config/goveehome/backups` before every update and
+install and on the first start of a new version (the newest 15 are kept). *Preferences →
+Your settings* has *Back up now*, opens the folder, and **Restore…** puts a backup back.
+If the settings file is ever damaged (e.g. by a power cut), GoveeHome keeps the damaged
+file and starts with the newest backup instead of starting over. To be extra safe, export
+your presets and animations to a file (section 7).
 
 If an update needs new system packages, the update window says what failed. Run the manual
 update below once, which installs them.
@@ -711,8 +730,8 @@ cd GoveeHome-For-Linux
 ./uninstall.sh
 ```
 
-This removes the app, the launchers and the service but keeps your settings. To remove those
-too:
+This removes the app, the launchers, the service and the login entry but keeps your
+settings, presets, animations, schedules and backups. To remove those too:
 
 ```bash
 ./uninstall.sh --purge
